@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<!--
+  Riyaz — Pitch Perfection
+  ========================
+  A single-file, dependency-free web app for practicing Hindustani classical
+  swaras (S r R g G m M P d D n N) against a chosen Sa (shruti).
+
+  How it works, end to end:
+    1. The user picks a Shruti (Sa) as an explicit note+octave (e.g. B2) and a
+       vertical Range (which saptaks to show). Sa's absolute frequency is
+       derived from its MIDI number.
+    2. On "Practice", we request the microphone via getUserMedia and feed it
+       into a Web Audio AnalyserNode.
+    3. Each animation frame we grab a time-domain buffer and run an
+       autocorrelation pitch detector (see detectPitch) to estimate the sung
+       fundamental frequency in Hz.
+    4. The frequency is converted to "semitones above Sa" (freqToRel), snapped
+       to the nearest swara, and the cents-off-from-perfect drives the colour:
+       green (±10¢) / yellow (±35¢) / red (further off).
+    5. The pitch is plotted as a scrolling coloured trail on a <canvas> grid
+       whose horizontal lines are the swaras.
+
+  Everything lives in this one HTML file — no build step, no dependencies.
+  Note: the pitch model uses 12-tone equal temperament, not just intonation.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Riyaz — Pitch Perfection</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --panel: #191d33;
+    --panel-2: #222842;
+    --line: #3a4166;
+    --text: #e8ebff;
+    --muted: #9aa3c7;
+    --accent: #6c7bff;
+    --green: #35d07f;
+    --yellow: #ffd24a;
+    --red: #ff5c6c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #1a2040, var(--bg));
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px;
+    overflow: hidden;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  select, button {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 12px;
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
+  select { min-width: 150px; }
+  .btn-primary {
+    background: linear-gradient(180deg, #7b88ff, #5766ff);
+    border: none;
+    font-weight: 700;
+    padding: 11px 22px;
+    box-shadow: 0 6px 16px rgba(87,102,255,0.35);
+    align-self: flex-end;
+    height: 46px;
+    padding: 0 22px;
+  }
+  .btn-primary.stop { background: linear-gradient(180deg, #ff6b7a, #e8414f); box-shadow: 0 6px 16px rgba(232,65,79,0.35); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+  .stage {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    position: relative;
+  }
+  canvas { width: 100%; height: 460px; display: block; border-radius: 10px; }
+  .graph-scroll { flex: 1; min-height: 0; overflow-y: auto; border-radius: 10px; }
+
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-end;
+    margin-top: 12px;
+    padding-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .footer-left, .footer-right {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .note-block { position: relative; align-self: flex-end; }
+  .metrics {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    white-space: nowrap;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 14px;
+    height: 46px;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
+  .dot.blinking { animation: blink 1s ease-in-out infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+  .big { font-size: 26px; font-weight: 800; min-width: 60px; }
+  .cents { color: var(--muted); font-size: 13px; }
+  .status { color: var(--muted); font-size: 13px; align-self: center; }
+  .legend {
+    color: var(--muted);
+    font-size: 12px;
+    align-self: center;
+    text-align: center;
+    flex: 1;
+    white-space: nowrap;
+  }
+  .legend b { font-size: 15px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="graph-scroll">
+      <canvas id="graph"></canvas>
+    </div>
+    <div class="footer">
+      <div class="footer-left">
+        <div class="field">
+          <label for="shrutiSelect">Shruti (Sa)</label>
+          <select id="shrutiSelect"></select>
+        </div>
+        <div class="field">
+          <label for="rangeSelect">Range</label>
+          <select id="rangeSelect">
+            <option value="mandra-sa">Mandra Sa → Sa</option>
+            <option value="madhya-sa">Madhya Sa → Sa</option>
+            <option value="taar-sa">Taar Sa → Sa</option>
+            <option value="mandraP-taarP" selected>Mandra Pa → Taar Pa</option>
+          </select>
+        </div>
+      </div>
+      <div class="legend">
+        <span><b style="color:var(--green)">●</b> Perfect (±10¢)</span> &nbsp;
+        <span><b style="color:var(--yellow)">●</b> Close (±35¢)</span> &nbsp;
+        <span><b style="color:var(--red)">●</b> Off pitch</span>
+      </div>
+      <div class="footer-right">
+        <div class="note-block">
+          <div class="pill"><span id="statusDot" class="dot"></span><span id="noteName" class="big">—</span></div>
+          <div class="metrics">
+            <span class="cents" id="centsText"></span>
+            <span class="cents" id="freqText"></span>
+          </div>
+        </div>
+        <button id="practiceBtn" class="btn-primary">▶ Practice</button>
+        <div class="status" id="statusText"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---- Swaras: semitone offset from Sa -> label ----
+  const SWARAS = [
+    { off: 0,  label: "S"  },
+    { off: 1,  label: "r"  },
+    { off: 2,  label: "R"  },
+    { off: 3,  label: "g"  },
+    { off: 4,  label: "G"  },
+    { off: 5,  label: "m"  },
+    { off: 6,  label: "M"  },
+    { off: 7,  label: "P"  },
+    { off: 8,  label: "d"  },
+    { off: 9,  label: "D"  },
+    { off: 10, label: "n"  },
+    { off: 11, label: "N"  },
+    { off: 12, label: "Ṡ"  },
+  ];
+
+  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+
+  // ---- DOM ----
+  const shrutiSelect = document.getElementById("shrutiSelect");
+  const rangeSelect = document.getElementById("rangeSelect");
+  const practiceBtn = document.getElementById("practiceBtn");
+  const canvas = document.getElementById("graph");
+  const ctx = canvas.getContext("2d");
+  const noteName = document.getElementById("noteName");
+  const centsText = document.getElementById("centsText");
+  const freqText = document.getElementById("freqText");
+  const statusText = document.getElementById("statusText");
+  const statusDot = document.getElementById("statusDot");
+
+  // Populate shruti selector with explicit note+octave (e.g. C3, B2).
+  // value = MIDI note number. C3 = 48, B2 = 47, etc.
+  // Practical Sa range for Hindustani voices: A2 (male, low) up to A3 (female).
+  for (let midi = 45; midi <= 57; midi++) {
+    const name = NOTE_NAMES[midi % 12];
+    const oct = Math.floor(midi / 12) - 1;   // MIDI octave (C4 = middle C)
+    const opt = document.createElement("option");
+    opt.value = midi;
+    opt.textContent = name + oct;
+    if (midi === 47) opt.selected = true;    // default B2
+    shrutiSelect.appendChild(opt);
+  }
+
+  // ---- Audio state ----
+  let audioCtx = null;
+  let analyser = null;
+  let sourceNode = null;
+  let mediaStream = null;
+  let rafId = null;
+  let running = false;
+  let buf = null;
+  let smoothRel = null;   // smoothed semitone position for steadier tracking
+
+  // ---- Pitch geometry (log-frequency mapping) ----
+  // We map a vertical range that spans a bit below Sa to a bit above upper Sa.
+  function saFrequency() {
+    const midi = parseInt(shrutiSelect.value, 10);   // MIDI note number of Sa
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  // vertical range in semitones relative to Sa (depends on selected Range)
+  function rangeBounds() {
+    switch (rangeSelect.value) {
+      case "mandra-sa":       // Mandra Sa (-12) up to Madhya Sa (0)
+        return { low: -12, high: 0 };
+      case "madhya-sa":       // Madhya Sa (0) up to Taar Sa (+12)
+        return { low: 0, high: 12 };
+      case "taar-sa":         // Taar Sa (+12) up to Ati-taar Sa (+24)
+        return { low: 12, high: 24 };
+      case "mandraP-taarP":   // Mandra Pa (-5) up to Taar Pa (+19)
+      default:
+        return { low: -5, high: 19 };
+    }
+  }
+  let RANGE_LOW = -5;
+  let RANGE_HIGH = 19;
+  function refreshRange() {
+    const b = rangeBounds();
+    RANGE_LOW = b.low;
+    RANGE_HIGH = b.high;
+  }
+  refreshRange();
+
+  // Build the list of swara lines to draw across the current range.
+  function activeLines() {
+    const lines = [];
+    for (let off = Math.ceil(RANGE_LOW); off <= Math.floor(RANGE_HIGH); off++) {
+      lines.push({ off, label: labelForOffset(off), isSa: (((off % 12) + 12) % 12) === 0 });
+    }
+    return lines;
+  }
+
+  // ---- Scrolling pitch history ----
+  const history = [];      // {rel: semitonesFromSa, color}
+  const MAX_POINTS = 600;
+
+  // ---- Resize canvas for crisp rendering ----
+  const PX_PER_SEMITONE = 34;   // vertical gap between adjacent swara lines
+  const PAD_Y = 24;
+  function resizeCanvas() {
+    // Height scales with the range so line spacing stays generous.
+    // (The graph area scrolls; we auto-scroll to the bottom so the lowest
+    // swara — e.g. P. for Mandra Pa → Taar Pa — is visible at start.)
+    const span = RANGE_HIGH - RANGE_LOW;
+    const cssHeight = span * PX_PER_SEMITONE + PAD_Y * 2;
+    canvas.style.height = cssHeight + "px";
+    const scroller = canvas.parentElement;
+    scroller.scrollTop = scroller.scrollHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", () => { resizeCanvas(); draw(); });
+
+  function relToY(rel) {
+    const rect = canvas.getBoundingClientRect();
+    const h = rect.height - PAD_Y * 2;
+    const t = (rel - RANGE_LOW) / (RANGE_HIGH - RANGE_LOW);   // 0 bottom .. 1 top
+    return PAD_Y + (1 - t) * h;
+  }
+
+  function draw() {
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const leftPad = 44;
+
+    // Draw swara lines
+    const lines = activeLines();
+    // With a wide range, lines get dense — thin them and their labels a touch.
+    const dense = lines.length > 20;
+    for (const sw of lines) {
+      const y = relToY(sw.off);
+      const isSa = sw.isSa;
+      ctx.beginPath();
+      ctx.moveTo(leftPad, y);
+      ctx.lineTo(W - 8, y);
+      ctx.lineWidth = isSa ? 3 : (dense ? 1.5 : 2);
+      ctx.strokeStyle = isSa ? "#5d68b8" : "#333a5e";
+      ctx.stroke();
+
+      // label
+      ctx.fillStyle = isSa ? "#aeb6ff" : "#8790bd";
+      ctx.font = (isSa ? "bold " : "") + (dense ? "12px" : "14px") + " -apple-system, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.fillText(sw.label, 14, y);
+    }
+
+    // Draw the sung pitch trail
+    if (history.length > 1) {
+      const step = (W - leftPad - 8) / MAX_POINTS;
+      // draw as colored segments
+      for (let i = 1; i < history.length; i++) {
+        const p0 = history[i - 1], p1 = history[i];
+        if (p0.rel == null || p1.rel == null) continue;
+        const x0 = leftPad + (i - 1) * step;
+        const x1 = leftPad + i * step;
+        ctx.beginPath();
+        ctx.moveTo(x0, relToY(p0.rel));
+        ctx.lineTo(x1, relToY(p1.rel));
+        ctx.lineWidth = 4;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = p1.color;
+        ctx.stroke();
+      }
+      // leading dot
+      const last = history[history.length - 1];
+      if (last.rel != null) {
+        const x = leftPad + (history.length - 1) * step;
+        ctx.beginPath();
+        ctx.arc(x, relToY(last.rel), 6, 0, Math.PI * 2);
+        ctx.fillStyle = last.color;
+        ctx.fill();
+      }
+    }
+  }
+
+  // ---- Autocorrelation pitch detection ----
+  // Only search lags corresponding to a plausible singing range. This stops
+  // the detector from latching onto a high harmonic (which produced bogus
+  // multi-kHz readings and made the trail jump off the correct swara line).
+  const MIN_HZ = 70;    // below Mandra Sa for most voices
+  const MAX_HZ = 1100;  // above Taar Sa
+  function detectPitch(buffer, sampleRate) {
+    const SIZE = buffer.length;
+    let rms = 0;
+    for (let i = 0; i < SIZE; i++) rms += buffer[i] * buffer[i];
+    rms = Math.sqrt(rms / SIZE);
+    if (rms < 0.01) return -1;   // too quiet
+
+    const minLag = Math.floor(sampleRate / MAX_HZ);
+    const maxLag = Math.min(Math.floor(sampleRate / MIN_HZ), Math.floor(SIZE / 2));
+
+    // Normalized autocorrelation over the valid lag window.
+    let bestLag = -1, bestVal = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let corr = 0, norm = 0;
+      for (let i = 0; i < SIZE - lag; i++) {
+        corr += buffer[i] * buffer[i + lag];
+        norm += buffer[i + lag] * buffer[i + lag];
+      }
+      const nc = norm > 0 ? corr / Math.sqrt(norm * norm + 1e-9) : 0;
+      // find the first strong peak (a local max), not just the global one
+      if (nc > bestVal) { bestVal = nc; bestLag = lag; }
+    }
+    // require a reasonably periodic signal, else treat as no clear pitch
+    if (bestLag < 0 || bestVal < 0.5) return -1;
+
+    // parabolic interpolation around the peak for sub-sample accuracy
+    let T0 = bestLag;
+    if (bestLag > minLag && bestLag < maxLag) {
+      let x1 = 0, x2 = 0, x3 = 0;
+      for (let i = 0; i < SIZE - (bestLag + 1); i++) {
+        x1 += buffer[i] * buffer[i + bestLag - 1];
+        x2 += buffer[i] * buffer[i + bestLag];
+        x3 += buffer[i] * buffer[i + bestLag + 1];
+      }
+      const a = (x1 + x3 - 2 * x2) / 2;
+      const bb = (x3 - x1) / 2;
+      if (a) T0 = bestLag - bb / (2 * a);
+    }
+    return sampleRate / T0;
+  }
+
+  function freqToRel(freq) {
+    // semitones above Sa
+    return 12 * Math.log2(freq / saFrequency());
+  }
+
+  function colorForCents(centsOff) {
+    const a = Math.abs(centsOff);
+    if (a <= 10) return { color: getComputedStyle(document.documentElement).getPropertyValue("--green").trim(), tag: "green" };
+    if (a <= 35) return { color: getComputedStyle(document.documentElement).getPropertyValue("--yellow").trim(), tag: "yellow" };
+    return { color: getComputedStyle(document.documentElement).getPropertyValue("--red").trim(), tag: "red" };
+  }
+
+  function nearestSwara(rel) {
+    // rel = semitones from Sa. The nearest note is simply the nearest
+    // semitone, in ANY octave — so singing an octave off still maps to the
+    // right swara (just in a lower/upper saptak), not a wildly wrong note.
+    const best = Math.round(rel);
+    const centsOff = (rel - best) * 100;   // true tuning error, -50..+50
+    return { off: best, label: labelForOffset(best), centsOff };
+  }
+
+  function labelForOffset(off) {
+    const norm = ((off % 12) + 12) % 12;
+    const base = SWARAS.find(s => s.off === norm)?.label || "?";
+    const octShift = Math.floor(off / 12);   // -1 mandra, 0 madhya, +1 taar, ...
+    if (octShift > 0) return base + "'".repeat(octShift);   // taar (upper): S'
+    if (octShift < 0) return base + ".".repeat(-octShift);  // mandra (lower): S.
+    return base;
+  }
+
+  function frame() {
+    if (!running) return;
+    analyser.getFloatTimeDomainData(buf);
+    const freq = detectPitch(buf, audioCtx.sampleRate);
+
+    if (freq > 0) {
+      let rel = freqToRel(freq);
+      // Octave-jump guard: if the new reading is ~an octave off the previous
+      // one (classic harmonic error), fold it back toward the last pitch.
+      if (smoothRel != null) {
+        while (rel - smoothRel > 6) rel -= 12;
+        while (smoothRel - rel > 6) rel += 12;
+      }
+      // Light exponential smoothing to steady the line.
+      smoothRel = smoothRel == null ? rel : smoothRel + (rel - smoothRel) * 0.4;
+      rel = smoothRel;
+      const { label, centsOff } = nearestSwara(rel);
+      const { color } = colorForCents(centsOff);
+      // Clamp to the visible range so the line stays on-graph even if the
+      // sung pitch is outside the current shruti/range window.
+      const clamped = Math.max(RANGE_LOW, Math.min(RANGE_HIGH, rel));
+      history.push({ rel: clamped, color });
+      noteName.textContent = label;
+      noteName.style.color = color;
+      statusDot.style.background = color;
+      statusDot.classList.remove("blinking");
+      centsText.textContent = (centsOff >= 0 ? "+" : "") + centsOff.toFixed(0) + " cents";
+      freqText.textContent = freq.toFixed(1) + " Hz";
+    } else {
+      smoothRel = null;
+      history.push({ rel: null, color: "#888" });
+      noteName.textContent = "—";
+      noteName.style.color = "var(--muted)";
+      statusDot.style.background = "var(--red)";
+      statusDot.classList.add("blinking");
+      centsText.textContent = "";
+      freqText.textContent = "";
+    }
+    while (history.length > MAX_POINTS) history.shift();
+
+    draw();
+    rafId = requestAnimationFrame(frame);
+  }
+
+  // ---- Microphone + practice ----
+  async function startPractice() {
+    try {
+      resizeCanvas();
+      const constraints = {
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      };
+      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") await audioCtx.resume();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      buf = new Float32Array(analyser.fftSize);
+      sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+      sourceNode.connect(analyser);
+
+      running = true;
+      history.length = 0;
+      smoothRel = null;
+      practiceBtn.textContent = "■ Stop";
+      practiceBtn.classList.add("stop");
+      statusText.textContent = "";
+      frame();
+    } catch (e) {
+      statusText.textContent = "Could not start: " + e.message;
+    }
+  }
+
+  function stopPractice() {
+    running = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (sourceNode) sourceNode.disconnect();
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+    if (audioCtx) audioCtx.close();
+    audioCtx = null; analyser = null; sourceNode = null; mediaStream = null;
+    practiceBtn.textContent = "▶ Practice";
+    practiceBtn.classList.remove("stop");
+    statusText.textContent = "";
+    noteName.textContent = "—";
+    noteName.style.color = "var(--muted)";
+    statusDot.style.background = "var(--muted)";
+    statusDot.classList.remove("blinking");
+    centsText.textContent = "";
+    freqText.textContent = "";
+  }
+
+  practiceBtn.addEventListener("click", () => {
+    if (running) stopPractice(); else startPractice();
+  });
+
+  // Redraw grid when shruti/octave/range change
+  shrutiSelect.addEventListener("change", draw);
+  rangeSelect.addEventListener("change", () => { refreshRange(); resizeCanvas(); draw(); });
+
+  // Initial render
+  resizeCanvas();
+  draw();
+})();
+</script>
+</body>
+</html>
