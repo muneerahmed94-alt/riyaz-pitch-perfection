@@ -28,24 +28,32 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Riyaz — Pitch Perfection</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <style>
+  /* Shared "Riyaz" design language: parchment background, burnt-sienna
+     accents, Lora serif for display type, Poppins for UI. Matches the
+     riyaz-palta-alankar and riyaz-phrase-looper sibling apps. */
   :root {
-    --bg: #0f1220;
-    --panel: #191d33;
-    --panel-2: #222842;
-    --line: #3a4166;
-    --text: #e8ebff;
-    --muted: #9aa3c7;
-    --accent: #6c7bff;
-    --green: #35d07f;
-    --yellow: #ffd24a;
-    --red: #ff5c6c;
+    --bg: #f0e6cf;
+    --panel: #f7edd6;      /* cream panel */
+    --panel-2: #fdf6e3;    /* lighter cream for inputs */
+    --line: #d9c9a3;       /* soft parchment border */
+    --line-strong: #b5995a;
+    --text: #5c3317;       /* warm brown text */
+    --muted: #a1887f;      /* muted brown */
+    --accent: #d45a00;     /* burnt sienna */
+    --accent-dark: #bf4020;
+    --green: #2e7d32;      /* elite lock — deep green (±10¢) */
+    --teal: #1a9e94;       /* good — teal (±20¢), clearly distinct from green */
+    --yellow: #c9963e;     /* gold */
+    --red: #c62828;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: radial-gradient(1200px 600px at 50% -10%, #1a2040, var(--bg));
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg);
+    background-image: linear-gradient(160deg, #f5eed8 0%, #ecdfc4 40%, #e8d5b7 100%);
     color: var(--text);
     height: 100vh;
     display: flex;
@@ -55,30 +63,32 @@
     overflow: hidden;
   }
   .field { display: flex; flex-direction: column; gap: 4px; }
-  .field label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .field label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
   select, button {
     font: inherit;
     color: var(--text);
     background: var(--panel-2);
-    border: 1px solid var(--line);
-    border-radius: 10px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 8px;
     padding: 9px 12px;
     outline: none;
     cursor: pointer;
+    transition: all 0.15s;
   }
-  select:focus { border-color: var(--accent); }
+  select:focus { border-color: var(--accent); background: #fff; }
   select { min-width: 150px; }
   .btn-primary {
-    background: linear-gradient(180deg, #7b88ff, #5766ff);
-    border: none;
-    font-weight: 700;
-    padding: 11px 22px;
-    box-shadow: 0 6px 16px rgba(87,102,255,0.35);
+    background: var(--accent);
+    color: #fff8ec;
+    border: 1.5px solid var(--accent);
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(90,40,10,0.2);
     align-self: flex-end;
     height: 46px;
-    padding: 0 22px;
+    padding: 0 24px;
   }
-  .btn-primary.stop { background: linear-gradient(180deg, #ff6b7a, #e8414f); box-shadow: 0 6px 16px rgba(232,65,79,0.35); }
+  .btn-primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+  .btn-primary.stop { background: var(--accent-dark); border-color: #943010; color: #fff8ec; }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 
   .stage {
@@ -88,10 +98,11 @@
     display: flex;
     flex-direction: column;
     background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 14px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 12px;
     padding: 14px;
     position: relative;
+    box-shadow: 0 4px 16px rgba(90,40,10,0.12);
   }
   canvas { width: 100%; height: 460px; display: block; border-radius: 10px; }
   .graph-scroll { flex: 1; min-height: 0; overflow-y: auto; border-radius: 10px; }
@@ -128,7 +139,7 @@
     align-items: center;
     gap: 8px;
     background: var(--panel-2);
-    border: 1px solid var(--line);
+    border: 1.5px solid var(--line-strong);
     border-radius: 999px;
     padding: 8px 16px;
     font-size: 14px;
@@ -137,12 +148,13 @@
   .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
   .dot.blinking { animation: blink 1s ease-in-out infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
-  .big { font-size: 26px; font-weight: 800; min-width: 60px; }
+  .big { font-family: 'Lora', Georgia, serif; font-size: 26px; font-weight: 700; min-width: 60px; }
   .cents { color: var(--muted); font-size: 13px; }
   .status { color: var(--muted); font-size: 13px; align-self: center; }
   .legend {
-    color: var(--muted);
+    color: var(--text);
     font-size: 12px;
+    font-weight: 500;
     align-self: center;
     text-align: center;
     flex: 1;
@@ -174,6 +186,7 @@
       </div>
       <div class="legend">
         <span><b style="color:var(--green)">●</b> Perfect (±10¢)</span> &nbsp;
+        <span><b style="color:var(--teal)">●</b> Good (±20¢)</span> &nbsp;
         <span><b style="color:var(--yellow)">●</b> Close (±35¢)</span> &nbsp;
         <span><b style="color:var(--red)">●</b> Off pitch</span>
       </div>
@@ -336,13 +349,13 @@
       ctx.beginPath();
       ctx.moveTo(leftPad, y);
       ctx.lineTo(W - 8, y);
-      ctx.lineWidth = isSa ? 3 : (dense ? 1.5 : 2);
-      ctx.strokeStyle = isSa ? "#5d68b8" : "#333a5e";
+      ctx.lineWidth = isSa ? 4 : (dense ? 2.5 : 3);
+      ctx.strokeStyle = isSa ? "#d45a00" : "#c9b489";
       ctx.stroke();
 
       // label
-      ctx.fillStyle = isSa ? "#aeb6ff" : "#8790bd";
-      ctx.font = (isSa ? "bold " : "") + (dense ? "12px" : "14px") + " -apple-system, sans-serif";
+      ctx.fillStyle = isSa ? "#bf4020" : "#a1887f";
+      ctx.font = (isSa ? "bold " : "") + (dense ? "12px" : "14px") + " 'Lora', Georgia, serif";
       ctx.textBaseline = "middle";
       ctx.fillText(sw.label, 14, y);
     }
@@ -359,7 +372,7 @@
         ctx.beginPath();
         ctx.moveTo(x0, relToY(p0.rel));
         ctx.lineTo(x1, relToY(p1.rel));
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 3;   // match reference swara line thickness
         ctx.lineCap = "round";
         ctx.strokeStyle = p1.color;
         ctx.stroke();
@@ -428,9 +441,15 @@
     return 12 * Math.log2(freq / saFrequency());
   }
 
+  // Map cents deviation to a colour tier. Graded so progress is visible:
+  //   ±10¢  green  — elite lock (snapped onto the reference line while drawing)
+  //   ±20¢  teal   — good, honest pitch; drawn at the true position
+  //   ±35¢  yellow — close
+  //   else  red    — off pitch
   function colorForCents(centsOff) {
     const a = Math.abs(centsOff);
     if (a <= 10) return { color: getComputedStyle(document.documentElement).getPropertyValue("--green").trim(), tag: "green" };
+    if (a <= 20) return { color: getComputedStyle(document.documentElement).getPropertyValue("--teal").trim(), tag: "good" };
     if (a <= 35) return { color: getComputedStyle(document.documentElement).getPropertyValue("--yellow").trim(), tag: "yellow" };
     return { color: getComputedStyle(document.documentElement).getPropertyValue("--red").trim(), tag: "red" };
   }
@@ -469,11 +488,14 @@
       // Light exponential smoothing to steady the line.
       smoothRel = smoothRel == null ? rel : smoothRel + (rel - smoothRel) * 0.4;
       rel = smoothRel;
-      const { label, centsOff } = nearestSwara(rel);
-      const { color } = colorForCents(centsOff);
+      const { label, centsOff, off } = nearestSwara(rel);
+      const { color, tag } = colorForCents(centsOff);
+      // When the pitch is "perfect", snap the drawn position exactly onto the
+      // swara reference line so the two lines overlap completely (no sliver).
+      const drawnRel = tag === "green" ? off : rel;
       // Clamp to the visible range so the line stays on-graph even if the
       // sung pitch is outside the current shruti/range window.
-      const clamped = Math.max(RANGE_LOW, Math.min(RANGE_HIGH, rel));
+      const clamped = Math.max(RANGE_LOW, Math.min(RANGE_HIGH, drawnRel));
       history.push({ rel: clamped, color });
       noteName.textContent = label;
       noteName.style.color = color;

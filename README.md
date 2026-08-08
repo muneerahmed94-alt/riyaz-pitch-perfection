@@ -23,6 +23,7 @@ There is no build step and there are no dependencies. The entire app is one
   pitch scrolls across as a coloured trail.
 - **Colour feedback**
   - 🟢 **Green** — perfect (within ±10 cents)
+  - 🩵 **Teal** — good (within ±20 cents)
   - 🟡 **Yellow** — close (within ±35 cents)
   - 🔴 **Red** — off pitch
 - **Note readout** — the current swara, cents deviation, and detected frequency
@@ -52,7 +53,7 @@ There is no build step and there are no dependencies. The entire app is one
 | Pitch detection | Autocorrelation over a bounded lag window (~70–1100 Hz) so it locks onto the vocal fundamental instead of a harmonic. Parabolic interpolation refines the estimate. |
 | Mapping | Frequency → semitones above Sa (`12 · log2(f / Sa)`), snapped to the nearest swara; the remaining error in cents drives the colour. |
 | Stability | Light exponential smoothing plus an octave-jump guard reduce flicker and harmonic errors. |
-| Rendering | A `<canvas>` draws the swara grid and a scrolling coloured pitch trail (green/yellow/red per frame). |
+| Rendering | A `<canvas>` draws the swara grid and a scrolling coloured pitch trail, tiered per frame (green ±10¢ / teal ±20¢ / yellow ±35¢ / red beyond). |
 
 ### A note on tuning
 
