@@ -29,8 +29,8 @@
   KEYBOARD section), with Brand/Reed/Coupler and Octave/Transpose controls.
 
   Optional metronome (footer "🎵 Metronome" button + ⚙ config): a look-ahead
-  scheduled click track with adjustable BPM, beats-per-bar, tap tempo, and an
-  optional play-N-bars / mute-M-bars practice mode (see the METRONOME section).
+  scheduled click track with adjustable BPM, beats-per-bar, and tap tempo
+  (see the METRONOME section).
 
   Everything lives in this one HTML file — no build step, no dependencies.
   Note: the pitch model uses 12-tone equal temperament, not just intonation.
@@ -232,7 +232,7 @@
   .metro-beats .beat.active { background: var(--green); transform: scale(1.15); }
   .metro-beats .beat.active.accent { background: var(--accent); }
   .metro-btns { display: flex; gap: 8px; }
-  .metro-btns button { flex: 1; height: 40px; }
+  .metro-btns button { flex: 1; height: 40px; white-space: nowrap; padding: 0 10px; }
   #metroStartStop.running { background: var(--accent-dark); border-color: #943010; color: #fff8ec; }
 </style>
 </head>
@@ -342,18 +342,6 @@
               <button id="metroStartStop">▶ Start</button>
               <button id="metroTap">Tap tempo</button>
             </div>
-            <label class="metro-check">
-              <input type="checkbox" id="metroMuteToggle">
-              Play&nbsp;
-              <select id="metroPlayBars" style="min-width:auto;padding:2px 6px">
-                <option>1</option><option>2</option><option>3</option><option>4</option>
-              </select>
-              &nbsp;bar and mute&nbsp;
-              <select id="metroMuteBars" style="min-width:auto;padding:2px 6px">
-                <option>1</option><option>2</option><option>3</option><option>4</option>
-              </select>
-              &nbsp;bar
-            </label>
           </div>
         </div>
       </div>
@@ -1253,8 +1241,7 @@
   // ─────────────────────────────────────────────────────────────
   //  METRONOME
   //  A steady click track with adjustable tempo (BPM), beats-per-bar,
-  //  tap tempo, and an optional "play N bars / mute M bars" practice
-  //  mode. Clicks are scheduled ahead of time on a dedicated
+  //  and tap tempo. Clicks are scheduled ahead of time on a dedicated
   //  AudioContext using the standard look-ahead scheduler pattern, so
   //  timing stays rock-solid regardless of frame rate. The accented
   //  first beat of each bar gets a higher-pitched click.
@@ -1270,9 +1257,6 @@
   const metroBeatsSelect = document.getElementById("metroBeatsSelect");
   const metroStartStop = document.getElementById("metroStartStop");
   const metroTap = document.getElementById("metroTap");
-  const metroMuteToggle = document.getElementById("metroMuteToggle");
-  const metroPlayBars = document.getElementById("metroPlayBars");
-  const metroMuteBars = document.getElementById("metroMuteBars");
 
   let metroAudioCtx = null;
   let metroRunning = false;
@@ -1280,7 +1264,6 @@
   let metroBeatsPerBar = 4;
   let metroNextNoteTime = 0;   // AudioContext time of the next click
   let metroBeatInBar = 0;      // 0-based beat index within the current bar
-  let metroBarCount = 0;       // bars elapsed since start (for play/mute cycle)
   let metroTimer = null;       // setInterval id for the scheduler
   const METRO_LOOKAHEAD = 0.1; // seconds to schedule ahead
   const METRO_INTERVAL = 25;   // ms between scheduler ticks
@@ -1301,16 +1284,7 @@
     metroBpmNum.textContent = metroBpm;
   }
 
-  // Is the current bar audible under the play/mute practice cycle?
-  function metroBarAudible() {
-    if (!metroMuteToggle.checked) return true;
-    const play = parseInt(metroPlayBars.value, 10);
-    const mute = parseInt(metroMuteBars.value, 10);
-    const cyc = play + mute;
-    return (metroBarCount % cyc) < play;
-  }
-
-  function scheduleClick(beat, time, audible) {
+  function scheduleClick(beat, time) {
     // Highlight the beat dot in sync with the scheduled audio time.
     const delayMs = Math.max(0, (time - metroAudioCtx.currentTime) * 1000);
     setTimeout(() => {
@@ -1319,7 +1293,6 @@
       if (dots[beat]) dots[beat].classList.add("active");
     }, delayMs);
 
-    if (!audible) return;
     const osc = metroAudioCtx.createOscillator();
     const gain = metroAudioCtx.createGain();
     const accent = beat === 0;
@@ -1338,13 +1311,10 @@
   function metroScheduler() {
     const secondsPerBeat = 60.0 / metroBpm;
     while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_LOOKAHEAD) {
-      scheduleClick(metroBeatInBar, metroNextNoteTime, metroBarAudible());
+      scheduleClick(metroBeatInBar, metroNextNoteTime);
       metroNextNoteTime += secondsPerBeat;
       metroBeatInBar++;
-      if (metroBeatInBar >= metroBeatsPerBar) {
-        metroBeatInBar = 0;
-        metroBarCount++;
-      }
+      if (metroBeatInBar >= metroBeatsPerBar) metroBeatInBar = 0;
     }
   }
 
@@ -1356,7 +1326,6 @@
     if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
     metroRunning = true;
     metroBeatInBar = 0;
-    metroBarCount = 0;
     metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
     metroTimer = setInterval(metroScheduler, METRO_INTERVAL);
     metroToggle.classList.add("on");

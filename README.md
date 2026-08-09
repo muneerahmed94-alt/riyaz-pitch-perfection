@@ -52,8 +52,6 @@ There is no build step and there are no dependencies. The entire app is one
   - **Tempo** — 30–250 BPM via slider, ± buttons, or **Tap tempo**
   - **Beats per bar** — 2–7, with the first beat accented (higher click) and a
     live row of beat dots that light up in time
-  - **Play _N_ bars and mute _M_ bars** — optional practice mode that silences
-    the click for a stretch so you can keep time on your own, then brings it back
 
   Clicks are scheduled with a look-ahead scheduler on their own `AudioContext`,
   so timing stays solid independent of frame rate.
@@ -84,7 +82,7 @@ There is no build step and there are no dependencies. The entire app is one
 | Stability | Light exponential smoothing plus an octave-jump guard reduce flicker and harmonic errors. |
 | Rendering | A `<canvas>` draws the swara grid and a scrolling coloured pitch trail, tiered per frame (green ±10¢ / teal ±20¢ / yellow ±35¢ / red beyond). |
 | MIDI (optional) | `navigator.requestMIDIAccess()` listens to the chosen input; note-on/off drive a physically-modelled harmonium synth (reed `PeriodicWave` → per-brand cabinet biquads → shared small-room convolution reverb, with a multi-reed bank, bellows LFO and attack chiff — ported from `riyaz-palta-alankar`) on its own `AudioContext`, with octave/transpose offsets applied before frequency conversion. |
-| Metronome (optional) | A look-ahead scheduler (`setInterval` tick + `AudioContext` sample-clock scheduling) queues short sine clicks — accented first beat, plain remaining beats — with optional play/mute bar cycling and tap-tempo averaging. |
+| Metronome (optional) | A look-ahead scheduler (`setInterval` tick + `AudioContext` sample-clock scheduling) queues short sine clicks — accented first beat, plain remaining beats — with tap-tempo averaging. |
 
 ### A note on tuning
 
