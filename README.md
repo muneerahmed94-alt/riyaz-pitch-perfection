@@ -29,14 +29,20 @@ There is no build step and there are no dependencies. The entire app is one
 - **Note readout** — the current swara, cents deviation, and detected frequency
   (Hz). A blinking red dot indicates the mic is listening.
 - **MIDI keyboard (optional)** — connect an external MIDI keyboard (Web MIDI
-  API) via the footer **🎹 MIDI** button to play a harmonium-style reference
-  along with your practice. The adjacent **⚙** opens a small config popover:
+  API) via the footer **🎹 MIDI** button to play a harmonium reference along
+  with your practice. The adjacent **⚙** opens a small config popover:
   - **Device** — pick which connected MIDI input to listen to
+  - **Brand** — harmonium voice: Paul & Co / Pakrashi / DSR / MKS
+  - **Reed** — reed-bank stop (Bass-Male, Bass-Male-Female, … Bass-Bass-Male-Female)
+  - **Coupler** — add an octave below (Left) or above (Right)
   - **Octave** — shift the keyboard ±3 octaves
   - **Transpose** — shift ±12 semitones (align the keyboard to your Sa)
 
-  Notes are voiced by a lightweight built-in harmonium synth, independent of
-  the microphone/pitch engine, so you can sound the reference and match it.
+  Notes are voiced by the same physically-modelled harmonium synth used in the
+  `riyaz-palta-alankar` sibling app — a source-filter model (reed
+  `PeriodicWave` → per-brand wooden-cabinet biquad chain → small-room
+  convolution reverb) with a multi-reed bank, bellows LFO, and attack chiff.
+  It runs on its own AudioContext, independent of the microphone/pitch engine.
   (Requires a browser with Web MIDI support — Chrome/Edge; Safari/Firefox may
   need it enabled.)
 
@@ -65,7 +71,7 @@ There is no build step and there are no dependencies. The entire app is one
 | Mapping | Frequency → semitones above Sa (`12 · log2(f / Sa)`), snapped to the nearest swara; the remaining error in cents drives the colour. |
 | Stability | Light exponential smoothing plus an octave-jump guard reduce flicker and harmonic errors. |
 | Rendering | A `<canvas>` draws the swara grid and a scrolling coloured pitch trail, tiered per frame (green ±10¢ / teal ±20¢ / yellow ±35¢ / red beyond). |
-| MIDI (optional) | `navigator.requestMIDIAccess()` listens to the chosen input; note-on/off drive a small harmonium-style synth (detuned reed partials) on its own `AudioContext`, with octave/transpose offsets applied before frequency conversion. |
+| MIDI (optional) | `navigator.requestMIDIAccess()` listens to the chosen input; note-on/off drive a physically-modelled harmonium synth (reed `PeriodicWave` → per-brand cabinet biquads → shared small-room convolution reverb, with a multi-reed bank, bellows LFO and attack chiff — ported from `riyaz-palta-alankar`) on its own `AudioContext`, with octave/transpose offsets applied before frequency conversion. |
 
 ### A note on tuning
 

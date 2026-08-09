@@ -22,8 +22,10 @@
 
   Optional MIDI keyboard (footer "🎹 MIDI" button + ⚙ config): connect an
   external keyboard via the Web MIDI API to play a harmonium drone/reference
-  alongside your singing. Notes are voiced by a small built-in harmonium-style
-  synth (see the MIDI KEYBOARD section) with Octave/Transpose to align to Sa.
+  alongside your singing. Notes are voiced by the same physically-modelled
+  harmonium synth as the riyaz-palta-alankar sibling (source-filter model:
+  reed PeriodicWave → per-brand cabinet biquads → room reverb; see the MIDI
+  KEYBOARD section), with Brand/Reed/Coupler and Octave/Transpose controls.
 
   Everything lives in this one HTML file — no build step, no dependencies.
   Note: the pitch model uses 12-tone equal temperament, not just intonation.
@@ -237,6 +239,34 @@
             <div class="field">
               <label for="midiDeviceSelect">Device</label>
               <select id="midiDeviceSelect"><option>Not connected</option></select>
+            </div>
+            <div class="field">
+              <label for="midiBrandSelect">Brand</label>
+              <select id="midiBrandSelect">
+                <option value="paul-co" selected>Paul &amp; Co</option>
+                <option value="pakrashi">Pakrashi</option>
+                <option value="dsr">DSR</option>
+                <option value="mks">MKS</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="midiReedSelect">Reed</label>
+              <select id="midiReedSelect">
+                <option value="bass-male" selected>Bass-Male</option>
+                <option value="bass-male-female">Bass-Male-Female</option>
+                <option value="bass-male-male">Bass-Male-Male</option>
+                <option value="male-male-female-bass">Male-Male-Female-Bass</option>
+                <option value="bass-male-female-female">Bass-Male-Female-Female</option>
+                <option value="bass-bass-male-female">Bass-Bass-Male-Female</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="midiCouplerSelect">Coupler</label>
+              <select id="midiCouplerSelect">
+                <option value="none" selected>None</option>
+                <option value="left">Left (octave down)</option>
+                <option value="right">Right (octave up)</option>
+              </select>
             </div>
             <div class="midi-adj">
               <span>Octave</span>
@@ -655,15 +685,21 @@
   // ─────────────────────────────────────────────────────────────
   //  MIDI KEYBOARD
   //  Connect an external MIDI keyboard (Web MIDI API) to play along
-  //  while practicing. Notes are voiced by a small built-in synth
-  //  (harmonium-style reed or a pure sine) through its own persistent
-  //  AudioContext, so it works independently of the mic/pitch engine.
-  //  Octave/Transpose let you shift the keyboard to your Sa.
+  //  while practicing. Notes are voiced by the same physically-modelled
+  //  harmonium synth used in the riyaz-palta-alankar sibling app — a
+  //  source-filter model (reed PeriodicWave → per-brand wooden-cabinet
+  //  biquad chain → small-room convolution reverb) with a multi-reed
+  //  bank, bellows LFO, and attack chiff. It runs on its own persistent
+  //  AudioContext, independent of the mic/pitch engine.
+  //  Octave/Transpose shift the keyboard to your Sa.
   // ─────────────────────────────────────────────────────────────
   const midiToggle = document.getElementById("midiToggle");
   const midiConfigBtn = document.getElementById("midiConfigBtn");
   const midiPopover = document.getElementById("midiPopover");
   const midiDeviceSelect = document.getElementById("midiDeviceSelect");
+  const midiBrandSelect = document.getElementById("midiBrandSelect");
+  const midiReedSelect = document.getElementById("midiReedSelect");
+  const midiCouplerSelect = document.getElementById("midiCouplerSelect");
   const midiStatus = document.getElementById("midiStatus");
   const midiOctVal = document.getElementById("midiOctVal");
   const midiTransVal = document.getElementById("midiTransVal");
@@ -671,8 +707,8 @@
   let midiAccess = null;        // MIDIAccess instance
   let midiInput = null;         // currently listening MIDIInput
   let midiAudioCtx = null;      // persistent AudioContext for playback
-  let midiMaster = null;        // shared output gain / limiter
-  const midiVoices = new Map(); // midi note number -> { stop(release) }
+  let midiCompressor = null;    // shared limiter into destination
+  const midiVoices = new Map(); // midi note number -> { release() }
   let midiOctaveShift = 0;      // ±3 octaves
   let midiTranspose = 0;        // ±12 semitones
 
@@ -682,69 +718,339 @@
   function ensureMidiAudio() {
     if (!midiAudioCtx || midiAudioCtx.state === "closed") {
       midiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const comp = midiAudioCtx.createDynamicsCompressor();
-      comp.threshold.value = -18; comp.ratio.value = 4;
-      comp.connect(midiAudioCtx.destination);
-      midiMaster = midiAudioCtx.createGain();
-      midiMaster.gain.value = 0.9;
-      midiMaster.connect(comp);
+      midiCompressor = midiAudioCtx.createDynamicsCompressor();
+      midiCompressor.threshold.value = -20;
+      midiCompressor.knee.value = 20;
+      midiCompressor.ratio.value = 4;
+      midiCompressor.connect(midiAudioCtx.destination);
     }
     if (midiAudioCtx.state === "suspended") midiAudioCtx.resume();
   }
 
-  // Build one voice for a note. Returns a release() to stop it gracefully.
-  function startVoice(freq, velocity) {
-    const ac = midiAudioCtx;
-    const now = ac.currentTime;
-    const g = ac.createGain();
-    g.connect(midiMaster);
-    const level = 0.28 * (velocity / 127);
-    const oscs = [];
-
-    // Harmonium-ish: a few detuned reedy partials for a warm buzz.
-    const specs = [
-      { type: "sawtooth", ratio: 1, gain: 1.0,  detune: -4 },
-      { type: "sawtooth", ratio: 1, gain: 0.6,  detune: +5 },
-      { type: "triangle", ratio: 2, gain: 0.35, detune: 0  },
-      { type: "sine",     ratio: 3, gain: 0.18, detune: 0  },
+  // ── Harmonium synth (ported from riyaz-palta-alankar) ─────────
+  //  A source-filter model after Puranik & Scavone (DAFx 2023):
+  //    • Reed source — a 32-partial PeriodicWave matching a measured
+  //      hand-harmonium LTAS (strong f0/2f, 4f notch, buzzy 5–12 plateau).
+  //    • Cabinet filter — a per-brand cascade of peaking biquads +
+  //      shelves + lowpass, the "wooden box" voice that distinguishes
+  //      Paul & Co / Pakrashi / DSR / MKS.
+  //    • Reed bank — multi-reed stops (bass/male/female octaves), each a
+  //      detuned voice with its own micro-drift for natural chorus.
+  //    • Bellows LFO — shallow, per-note-phase amplitude + pitch wobble.
+  //    • Chiff — brief filtered-noise onset burst.
+  //    • Room reverb — a shared synthetic small-room convolution tail so
+  //      successive notes bleed together like a real instrument.
+  const _harmoniumReedWaveCache = new WeakMap();
+  function getHarmoniumReedWave(audioCtx) {
+    const cached = _harmoniumReedWaveCache.get(audioCtx);
+    if (cached) return cached;
+    const HARM = [
+      0.00, 1.00, 0.88, 0.65, 0.28, 0.40, 0.36, 0.38, 0.32, 0.34,
+      0.30, 0.25, 0.22, 0.18, 0.14, 0.12, 0.10, 0.085, 0.075, 0.060,
+      0.050, 0.042, 0.035, 0.028, 0.022, 0.018, 0.014, 0.011, 0.008,
+      0.006, 0.005, 0.004, 0.003,
     ];
-    for (const s of specs) {
-      const o = ac.createOscillator();
-      o.type = s.type;
-      o.frequency.value = freq * s.ratio;
-      o.detune.value = s.detune;
-      const vg = ac.createGain();
-      vg.gain.value = s.gain;
-      o.connect(vg); vg.connect(g);
-      o.start(now); oscs.push(o);
+    const real = new Float32Array(HARM.length);
+    const imag = new Float32Array(HARM.length);
+    for (let i = 1; i < HARM.length; i++) imag[i] = HARM[i];
+    const wave = audioCtx.createPeriodicWave(real, imag, { disableNormalization: false });
+    _harmoniumReedWaveCache.set(audioCtx, wave);
+    return wave;
+  }
+
+  const HARMONIUM_BRANDS = {
+    'paul-co': { name: 'Paul & Co', reedTrim: 0.0, filters: [
+      { type: 'peaking',   freq:  180, Q: 1.2, gain:  3.0 },
+      { type: 'peaking',   freq:  520, Q: 1.4, gain: -2.5 },
+      { type: 'peaking',   freq:  950, Q: 1.8, gain:  4.5 },
+      { type: 'peaking',   freq: 1600, Q: 2.2, gain:  5.5 },
+      { type: 'peaking',   freq: 2700, Q: 2.0, gain:  2.5 },
+      { type: 'highshelf', freq: 4500, Q: 0.7, gain: -9.0 },
+      { type: 'lowpass',   freq: 7000, Q: 0.5, gain:  0.0 },
+    ] },
+    'pakrashi': { name: 'Pakrashi', reedTrim: -1.0, filters: [
+      { type: 'peaking',   freq:  160, Q: 1.1, gain:  2.0 },
+      { type: 'peaking',   freq:  700, Q: 1.6, gain:  3.0 },
+      { type: 'peaking',   freq: 1200, Q: 1.8, gain:  4.0 },
+      { type: 'peaking',   freq: 2400, Q: 2.4, gain:  6.0 },
+      { type: 'peaking',   freq: 3600, Q: 1.8, gain:  3.0 },
+      { type: 'highshelf', freq: 5000, Q: 0.7, gain: -5.0 },
+      { type: 'lowpass',   freq: 8500, Q: 0.5, gain:  0.0 },
+    ] },
+    'dsr': { name: 'DSR', reedTrim: 0.0, filters: [
+      { type: 'peaking',   freq:  200, Q: 1.0, gain:  2.0 },
+      { type: 'peaking',   freq:  600, Q: 1.2, gain: -3.0 },
+      { type: 'peaking',   freq: 1100, Q: 1.8, gain:  4.0 },
+      { type: 'peaking',   freq: 2000, Q: 2.0, gain:  4.0 },
+      { type: 'peaking',   freq: 3200, Q: 2.0, gain:  3.5 },
+      { type: 'highshelf', freq: 5000, Q: 0.7, gain: -6.0 },
+      { type: 'lowpass',   freq: 8000, Q: 0.5, gain:  0.0 },
+    ] },
+    'mks': { name: 'MKS', reedTrim: -0.5, filters: [
+      { type: 'peaking',   freq:  230, Q: 1.4, gain:  2.5 },
+      { type: 'peaking',   freq:  550, Q: 1.3, gain: -2.0 },
+      { type: 'peaking',   freq: 1200, Q: 2.4, gain:  5.5 },
+      { type: 'peaking',   freq: 2200, Q: 2.0, gain:  4.5 },
+      { type: 'peaking',   freq: 3500, Q: 1.8, gain:  3.5 },
+      { type: 'highshelf', freq: 5500, Q: 0.7, gain: -4.0 },
+      { type: 'lowpass',   freq: 9000, Q: 0.5, gain:  0.0 },
+    ] },
+  };
+
+  function buildHarmoniumCabinet(audioCtx, brand) {
+    const spec = HARMONIUM_BRANDS[brand] || HARMONIUM_BRANDS['paul-co'];
+    const input = audioCtx.createGain();
+    input.gain.value = 1;
+    let last = input;
+    const nodes = [];
+    for (const f of spec.filters) {
+      const b = audioCtx.createBiquadFilter();
+      b.type = f.type;
+      b.frequency.value = f.freq;
+      b.Q.value = f.Q;
+      if (f.type !== 'lowpass') b.gain.value = f.gain;
+      last.connect(b);
+      last = b;
+      nodes.push(b);
+    }
+    const trim = audioCtx.createGain();
+    trim.gain.value = Math.pow(10, spec.reedTrim / 20);
+    last.connect(trim);
+    return { input, output: trim, nodes };
+  }
+
+  const _harmoniumIRCache = new WeakMap();
+  function getHarmoniumRoomIR(audioCtx) {
+    const cached = _harmoniumIRCache.get(audioCtx);
+    if (cached) return cached;
+    const sr = audioCtx.sampleRate;
+    const length = Math.floor(sr * 1.8);
+    const buffer = audioCtx.createBuffer(2, length, sr);
+    const earlyReflections = [
+      { tL: 0.013, tR: 0.017, amp: 0.55 },
+      { tL: 0.024, tR: 0.021, amp: 0.45 },
+      { tL: 0.032, tR: 0.036, amp: 0.38 },
+      { tL: 0.047, tR: 0.043, amp: 0.30 },
+      { tL: 0.059, tR: 0.065, amp: 0.25 },
+      { tL: 0.078, tR: 0.074, amp: 0.18 },
+    ];
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch);
+      let lpState = 0;
+      const lpCoef = 0.35;
+      const decayK = Math.log(1000) / (1.2 * sr);
+      for (let i = 0; i < length; i++) {
+        const noise = (Math.random() * 2 - 1);
+        lpState = lpState * (1 - lpCoef) + noise * lpCoef;
+        data[i] = lpState * Math.exp(-decayK * i) * 0.35;
+      }
+      for (const r of earlyReflections) {
+        const t = ch === 0 ? r.tL : r.tR;
+        const idx = Math.floor(t * sr);
+        if (idx < length) {
+          for (let k = 0; k < 8; k++) {
+            data[idx + k] += r.amp * (1 - k / 8) * (Math.random() * 0.4 + 0.8);
+          }
+        }
+      }
+      const gap = Math.floor(sr * 0.003);
+      for (let i = 0; i < gap; i++) data[i] = 0;
+    }
+    _harmoniumIRCache.set(audioCtx, buffer);
+    return buffer;
+  }
+
+  const _harmoniumReverbBusCache = new WeakMap();
+  function getHarmoniumReverbBus(audioCtx, finalDest) {
+    const cached = _harmoniumReverbBusCache.get(audioCtx);
+    if (cached) return cached;
+    const input = audioCtx.createGain();
+    input.gain.value = 1;
+    const dryGain = audioCtx.createGain();
+    dryGain.gain.value = 0.82;
+    input.connect(dryGain);
+    dryGain.connect(finalDest);
+    const wetHP = audioCtx.createBiquadFilter();
+    wetHP.type = 'highpass'; wetHP.frequency.value = 180; wetHP.Q.value = 0.7;
+    const wetLP = audioCtx.createBiquadFilter();
+    wetLP.type = 'lowpass'; wetLP.frequency.value = 5500; wetLP.Q.value = 0.5;
+    const convolver = audioCtx.createConvolver();
+    convolver.buffer = getHarmoniumRoomIR(audioCtx);
+    convolver.normalize = true;
+    const wetGain = audioCtx.createGain();
+    wetGain.gain.value = 0.28;
+    input.connect(wetHP);
+    wetHP.connect(wetLP);
+    wetLP.connect(convolver);
+    convolver.connect(wetGain);
+    wetGain.connect(finalDest);
+    const bus = { input, dryGain, wetGain, convolver };
+    _harmoniumReverbBusCache.set(audioCtx, bus);
+    return bus;
+  }
+
+  function createHarmoniumNote(audioCtx, dest, freq, startTime, duration, reedType, leftCoupler, rightCoupler, brand) {
+    const oscillators = [];
+    brand = brand || 'paul-co';
+
+    const reeds = [];
+    if (reedType === 'male-male-female-bass') {
+      reeds.push({ freq: freq,     amp: 1.00, detune: -6 });
+      reeds.push({ freq: freq,     amp: 0.95, detune:  8 });
+      reeds.push({ freq: freq * 2, amp: 0.28, detune:  0 });
+      reeds.push({ freq: freq / 2, amp: 0.55, detune:  0 });
+    } else if (reedType === 'bass-male-female-female') {
+      reeds.push({ freq: freq / 2, amp: 0.55, detune:  0 });
+      reeds.push({ freq: freq,     amp: 1.00, detune:  0 });
+      reeds.push({ freq: freq * 2, amp: 0.26, detune: -6 });
+      reeds.push({ freq: freq * 2, amp: 0.24, detune:  8 });
+    } else if (reedType === 'bass-bass-male-female') {
+      reeds.push({ freq: freq / 2, amp: 0.52, detune: -5 });
+      reeds.push({ freq: freq / 2, amp: 0.48, detune:  6 });
+      reeds.push({ freq: freq,     amp: 1.00, detune:  0 });
+      reeds.push({ freq: freq * 2, amp: 0.28, detune:  0 });
+    } else {
+      reeds.push({ freq: freq / 2, amp: 0.52, detune: 0 });
+      if (reedType === 'bass-male-male') {
+        reeds.push({ freq: freq, amp: 1.00, detune: -6 });
+        reeds.push({ freq: freq, amp: 0.95, detune:  8 });
+      } else {
+        reeds.push({ freq: freq, amp: 1.00, detune:  0 });
+      }
+      if (reedType === 'bass-male-female') {
+        reeds.push({ freq: freq * 2, amp: 0.28, detune: 0 });
+      }
+    }
+    if (leftCoupler)  reeds.push({ freq: freq / 2, amp: 0.32, detune: -3 });
+    if (rightCoupler) reeds.push({ freq: freq * 2, amp: 0.22, detune:  3 });
+
+    const cabinet = buildHarmoniumCabinet(audioCtx, brand);
+
+    const attack = 0.040, release = 0.080;
+    const noteEnv = audioCtx.createGain();
+    noteEnv.gain.setValueAtTime(0.0001, startTime);
+    noteEnv.gain.exponentialRampToValueAtTime(1.0, startTime + attack);
+    noteEnv.gain.setValueAtTime(1.0, startTime + Math.max(duration - release, attack + 0.005));
+    noteEnv.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    cabinet.output.connect(noteEnv);
+    noteEnv.connect(dest);
+
+    const lfoPhaseOffset = Math.random() * 2;
+    const bellows = audioCtx.createOscillator();
+    const bellowsAmp = audioCtx.createGain();
+    bellows.type = 'sine';
+    bellows.frequency.value = 2.8 + Math.random() * 0.6;
+    bellowsAmp.gain.value = 0.025;
+    bellows.connect(bellowsAmp);
+    bellowsAmp.connect(noteEnv.gain);
+    bellows.start(startTime - lfoPhaseOffset);
+    bellows.stop(startTime + duration + 0.1);
+    oscillators.push(bellows);
+
+    const volumeScale = 0.085 / Math.sqrt(reeds.length);
+    const reedWave = getHarmoniumReedWave(audioCtx);
+    for (const reed of reeds) {
+      const reedGain = audioCtx.createGain();
+      reedGain.gain.value = reed.amp * volumeScale;
+      reedGain.connect(cabinet.input);
+      const drift = (Math.random() - 0.5) * 4;
+      const osc = audioCtx.createOscillator();
+      osc.setPeriodicWave(reedWave);
+      osc.frequency.value = reed.freq;
+      osc.detune.value = reed.detune + drift;
+      const pitchLfo = audioCtx.createOscillator();
+      const pitchLfoGain = audioCtx.createGain();
+      pitchLfo.type = 'sine';
+      pitchLfo.frequency.value = bellows.frequency.value;
+      pitchLfoGain.gain.value = 1.5;
+      pitchLfo.connect(pitchLfoGain);
+      pitchLfoGain.connect(osc.detune);
+      pitchLfo.start(startTime - lfoPhaseOffset + Math.random() * 0.1);
+      pitchLfo.stop(startTime + duration + 0.1);
+      oscillators.push(pitchLfo);
+      osc.connect(reedGain);
+      osc.start(startTime);
+      osc.stop(startTime + duration + 0.1);
+      oscillators.push(osc);
     }
 
-    // Soft attack.
-    g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(level, now + 0.02);
+    const chiffLen = Math.min(0.07, duration);
+    const bufSize = Math.max(1, Math.floor(audioCtx.sampleRate * chiffLen));
+    const chiffBuf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const chiffData = chiffBuf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) chiffData[i] = Math.random() * 2 - 1;
+    const chiffSrc = audioCtx.createBufferSource();
+    chiffSrc.buffer = chiffBuf;
+    const chiffBP = audioCtx.createBiquadFilter();
+    chiffBP.type = 'bandpass';
+    chiffBP.frequency.value = Math.min(Math.max(freq * 3, 900), 4000);
+    chiffBP.Q.value = 0.9;
+    const chiffGain = audioCtx.createGain();
+    const chiffPeak = volumeScale * 0.12;
+    chiffGain.gain.setValueAtTime(0, startTime);
+    chiffGain.gain.linearRampToValueAtTime(chiffPeak, startTime + 0.008);
+    chiffGain.gain.exponentialRampToValueAtTime(0.0001, startTime + chiffLen);
+    chiffSrc.connect(chiffBP);
+    chiffBP.connect(chiffGain);
+    chiffGain.connect(cabinet.input);
+    chiffSrc.start(startTime);
+    chiffSrc.stop(startTime + chiffLen + 0.02);
+    oscillators.push(chiffSrc);
 
-    return function release() {
-      const t = ac.currentTime;
-      g.gain.cancelScheduledValues(t);
-      g.gain.setValueAtTime(g.gain.value, t);
-      g.gain.linearRampToValueAtTime(0, t + 0.12);
-      oscs.forEach(o => o.stop(t + 0.14));
-    };
+    return oscillators;
   }
 
   function midiNoteOn(note, velocity) {
     ensureMidiAudio();
-    if (midiVoices.has(note)) { midiVoices.get(note)(); midiVoices.delete(note); }
+    // Retrigger: release any note already sounding at this key.
+    if (midiVoices.has(note)) { midiVoices.get(note).release(); midiVoices.delete(note); }
+
     const adjusted = note + midiOctaveShift * 12 + midiTranspose;
-    midiVoices.set(note, startVoice(midiNoteToFreq(adjusted), velocity || 96));
+    const freq = midiNoteToFreq(adjusted);
+    const velScale = (velocity || 96) / 127;
+
+    const masterGain = midiAudioCtx.createGain();
+    masterGain.gain.value = velScale;
+    // Feed the shared dry+wet room bus so the reverb tail continues after
+    // masterGain's release fade.
+    const reverb = getHarmoniumReverbBus(midiAudioCtx, midiCompressor);
+    masterGain.connect(reverb.input);
+
+    const now = midiAudioCtx.currentTime;
+    // Long max duration — the key is held; release() fades it out early.
+    const oscillators = createHarmoniumNote(
+      midiAudioCtx, masterGain, freq, now, 30,
+      midiReedSelect.value, midiCouplerSelect.value === 'left',
+      midiCouplerSelect.value === 'right', midiBrandSelect.value
+    );
+
+    midiVoices.set(note, {
+      release() {
+        if (!midiAudioCtx || midiAudioCtx.state === 'closed') return;
+        const t = midiAudioCtx.currentTime;
+        const val = masterGain.gain.value;
+        if (val <= 0.0001) {
+          for (const o of oscillators) { try { o.stop(); } catch (e) {} }
+          try { masterGain.disconnect(); } catch (e) {}
+          return;
+        }
+        masterGain.gain.cancelScheduledValues(t);
+        masterGain.gain.setValueAtTime(val, t);
+        masterGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+        setTimeout(() => {
+          for (const o of oscillators) { try { o.stop(); } catch (e) {} }
+          try { masterGain.disconnect(); } catch (e) {}
+        }, 130);
+      }
+    });
   }
 
   function midiNoteOff(note) {
-    if (midiVoices.has(note)) { midiVoices.get(note)(); midiVoices.delete(note); }
+    if (midiVoices.has(note)) { midiVoices.get(note).release(); midiVoices.delete(note); }
   }
 
   function allMidiNotesOff() {
-    for (const rel of midiVoices.values()) rel();
+    for (const v of midiVoices.values()) v.release();
     midiVoices.clear();
   }
 
