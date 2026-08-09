@@ -357,6 +357,14 @@
               <button id="metroStartStop">▶ Start</button>
               <button id="metroTap">Tap tempo</button>
             </div>
+            <div class="metro-adj">
+              <span>Volume</span>
+              <span class="stepper">
+                <button id="metroVolDown">−</button>
+                <span class="val" id="metroVolVal">5</span>
+                <button id="metroVolUp">+</button>
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1300,11 +1308,15 @@
   const metroBeatsSelect = document.getElementById("metroBeatsSelect");
   const metroStartStop = document.getElementById("metroStartStop");
   const metroTap = document.getElementById("metroTap");
+  const metroVolVal = document.getElementById("metroVolVal");
+  const metroVolDown = document.getElementById("metroVolDown");
+  const metroVolUp = document.getElementById("metroVolUp");
 
   let metroAudioCtx = null;
   let metroRunning = false;
   let metroBpm = 80;
   let metroBeatsPerBar = 4;
+  let metroVolume = 5;         // 1–10 level
   let metroNextNoteTime = 0;   // AudioContext time of the next click
   let metroBeatInBar = 0;      // 0-based beat index within the current bar
   let metroTimer = null;       // setInterval id for the scheduler
@@ -1327,6 +1339,11 @@
     metroBpmNum.value = metroBpm;
   }
 
+  function setMetroVolume(v) {
+    metroVolume = Math.max(1, Math.min(10, v));
+    metroVolVal.textContent = metroVolume;
+  }
+
   function scheduleClick(beat, time) {
     // Highlight the beat dot in sync with the scheduled audio time.
     const delayMs = Math.max(0, (time - metroAudioCtx.currentTime) * 1000);
@@ -1341,7 +1358,7 @@
     const accent = beat === 0;
     osc.type = "sine";
     osc.frequency.value = accent ? 1600 : 1000;
-    const peak = accent ? 0.5 : 0.32;
+    const peak = (accent ? 0.5 : 0.32) * (metroVolume / 10);
     gain.gain.setValueAtTime(0, time);
     gain.gain.linearRampToValueAtTime(peak, time + 0.001);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
@@ -1396,6 +1413,7 @@
 
   buildBeatDots();
   setMetroBpm(metroBpm);
+  setMetroVolume(metroVolume);
 
   metroToggle.addEventListener("click", toggleMetro);
   metroStartStop.addEventListener("click", toggleMetro);
@@ -1414,6 +1432,8 @@
     setMetroBpm(isNaN(v) ? metroBpm : v);
   });
   metroBpmNum.addEventListener("keydown", (e) => { if (e.key === "Enter") metroBpmNum.blur(); });
+  metroVolDown.addEventListener("click", () => setMetroVolume(metroVolume - 1));
+  metroVolUp.addEventListener("click", () => setMetroVolume(metroVolume + 1));
   metroBeatsSelect.addEventListener("change", () => {
     metroBeatsPerBar = parseInt(metroBeatsSelect.value, 10);
     metroBeatInBar = 0;

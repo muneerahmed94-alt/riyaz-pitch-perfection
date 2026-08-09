@@ -52,6 +52,7 @@ There is no build step and there are no dependencies. The entire app is one
   - **Tempo** — 30–250 BPM via slider, ± buttons, or **Tap tempo**
   - **Beats per bar** — 2–7, with the first beat accented (higher click) and a
     live row of beat dots that light up in time
+  - **Volume** — click loudness, level 1–10 via ± buttons
 
   Clicks are scheduled with a look-ahead scheduler on their own `AudioContext`,
   so timing stays solid independent of frame rate.
