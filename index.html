@@ -13,8 +13,8 @@
        into a Web Audio AnalyserNode.
     3. Each animation frame we grab a time-domain buffer and run the McLeod
        Pitch Method / NSDF detector (see detectPitch) to estimate the sung
-       fundamental frequency in Hz — robust against octave-halving on higher
-       notes.
+       fundamental frequency in Hz — robust against octave errors in both
+       directions (halving and doubling).
     4. The frequency is converted to "semitones above Sa" (freqToRel), snapped
        to the nearest swara, and the cents-off-from-perfect drives the colour:
        green (±10¢) / teal (±20¢) / yellow (±35¢) / red (further off).
@@ -620,6 +620,29 @@
       if (nsdf[p] >= threshold) { chosen = p; break; }
     }
     if (chosen < 0) return -1;
+
+    // Octave-UP correction. The "first peak above threshold" rule prevents
+    // octave-halving, but it can latch onto the half-period peak (lag ≈ T/2)
+    // when a note has a strong octave overtone — reporting the pitch an octave
+    // too HIGH (e.g. madhya Sa drawn at taar Sa). For a genuine fundamental the
+    // peak at 2× the lag (its own period multiple) is WEAKER; in the octave-up
+    // error case the peak at 2×chosen is the true period and is clearly
+    // STRONGER. So walk to the doubled lag only while it correlates
+    // meaningfully better (≥2% stronger) — a margin that guarantees we never
+    // move to a longer period for a real fundamental, so octave-halving stays
+    // fixed.
+    const nsdfNear = (lag) => {
+      let v = nsdf[lag];
+      if (lag - 1 >= minLag) v = Math.max(v, nsdf[lag - 1]);
+      if (lag + 1 <= maxLag) v = Math.max(v, nsdf[lag + 1]);
+      return v;
+    };
+    while (chosen * 2 <= maxLag && nsdfNear(chosen * 2) >= nsdf[chosen] * 1.02) {
+      let best = chosen * 2;
+      if (best - 1 >= minLag && nsdf[best - 1] > nsdf[best]) best -= 1;
+      else if (best + 1 <= maxLag && nsdf[best + 1] > nsdf[best]) best += 1;
+      chosen = best;
+    }
 
     // Parabolic interpolation around the chosen peak for sub-sample accuracy.
     let T0 = chosen;
