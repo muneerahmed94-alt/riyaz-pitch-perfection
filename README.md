@@ -38,7 +38,10 @@ There is no build step and there are no dependencies. The entire app is one
   - **Velocity sensitivity** — off by default (every note plays at a fixed
     moderate level, like a steady drone); enable to let key velocity scale loudness
   - **Octave** — shift the keyboard ±3 octaves
-  - **Transpose** — shift ±12 semitones (align the keyboard to your Sa)
+  - **Transpose** — shift ±12 semitones (align the keyboard to your Sa). Kept
+    in two-way sync with the Shruti selector: the keyboard's C key sounds Sa
+    (reference C3 = 0), so B2 ⇄ −1, C#3 ⇄ +1, etc. — changing either control
+    updates the other
 
   Notes are voiced by the same physically-modelled harmonium synth used in the
   `riyaz-palta-alankar` sibling app — a source-filter model (reed
