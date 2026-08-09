@@ -176,13 +176,13 @@
 
   /* ── Combined button group + config popover (MIDI, Metronome) ── */
   .midi-group, .metro-group { display: inline-flex; align-self: flex-end; position: relative; }
-  .midi-group button, .metro-group button {
+  .midi-group > button, .metro-group > button {
     border-radius: 0;
     margin: 0;
     height: 46px;
   }
-  .midi-group button:first-child, .metro-group button:first-child { border-radius: 8px 0 0 8px; }
-  .midi-group button:last-child, .metro-group button:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+  .midi-group > button:first-child, .metro-group > button:first-child { border-radius: 8px 0 0 8px; }
+  .midi-group > button:last-of-type, .metro-group > button:last-of-type { border-radius: 0 8px 8px 0; border-left: none; }
   #midiToggle.connected, #metroToggle.on {
     background: var(--green);
     border-color: var(--green);
@@ -221,7 +221,20 @@
   /* ── Metronome popover specifics ── */
   .metro-popover { min-width: 260px; }
   .metro-bpm-display { text-align: center; font-family: 'Lora', Georgia, serif; }
-  .metro-bpm-display .bpm-num { font-size: 34px; font-weight: 700; line-height: 1; }
+  .metro-bpm-display .bpm-num {
+    font-family: 'Lora', Georgia, serif;
+    font-size: 34px; font-weight: 700; line-height: 1;
+    width: 100px; text-align: center;
+    color: var(--text); background: transparent;
+    border: none; border-bottom: 2px solid transparent;
+    padding: 0; border-radius: 0; cursor: text;
+  }
+  .metro-bpm-display .bpm-num:hover { border-bottom-color: var(--line-strong); }
+  .metro-bpm-display .bpm-num:focus { outline: none; border-bottom-color: var(--accent); background: transparent; }
+  /* hide number-input spinners for a clean look */
+  .metro-bpm-display .bpm-num::-webkit-inner-spin-button,
+  .metro-bpm-display .bpm-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .metro-bpm-display .bpm-num { -moz-appearance: textfield; }
   .metro-bpm-display .bpm-unit { font-size: 13px; color: var(--muted); letter-spacing: 1px; }
   .metro-bpm-row { display: flex; align-items: center; gap: 10px; }
   .metro-bpm-row input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
@@ -325,7 +338,7 @@
               <button class="metro-round" id="metroBpmUp" aria-label="Increase tempo">+</button>
             </div>
             <div class="metro-bpm-display">
-              <span class="bpm-num" id="metroBpmNum">80</span> <span class="bpm-unit">BPM</span>
+              <input class="bpm-num" id="metroBpmNum" type="number" min="30" max="250" value="80"> <span class="bpm-unit">BPM</span>
             </div>
             <div class="field">
               <label for="metroBeatsSelect">Beats per bar</label>
@@ -1281,7 +1294,7 @@
   function setMetroBpm(bpm) {
     metroBpm = Math.max(30, Math.min(250, Math.round(bpm)));
     metroBpmSlider.value = metroBpm;
-    metroBpmNum.textContent = metroBpm;
+    metroBpmNum.value = metroBpm;
   }
 
   function scheduleClick(beat, time) {
@@ -1358,6 +1371,12 @@
   metroBpmSlider.addEventListener("input", () => setMetroBpm(parseInt(metroBpmSlider.value, 10)));
   metroBpmDown.addEventListener("click", () => setMetroBpm(metroBpm - 1));
   metroBpmUp.addEventListener("click", () => setMetroBpm(metroBpm + 1));
+  // Editable BPM field: commit on change / Enter, re-clamp to the valid range.
+  metroBpmNum.addEventListener("change", () => {
+    const v = parseInt(metroBpmNum.value, 10);
+    setMetroBpm(isNaN(v) ? metroBpm : v);
+  });
+  metroBpmNum.addEventListener("keydown", (e) => { if (e.key === "Enter") metroBpmNum.blur(); });
   metroBeatsSelect.addEventListener("change", () => {
     metroBeatsPerBar = parseInt(metroBeatsSelect.value, 10);
     metroBeatInBar = 0;
