@@ -28,6 +28,10 @@
   reed PeriodicWave → per-brand cabinet biquads → room reverb; see the MIDI
   KEYBOARD section), with Brand/Reed/Coupler and Octave/Transpose controls.
 
+  Optional metronome (footer "🎵 Metronome" button + ⚙ config): a look-ahead
+  scheduled click track with adjustable BPM, beats-per-bar, tap tempo, and an
+  optional play-N-bars / mute-M-bars practice mode (see the METRONOME section).
+
   Everything lives in this one HTML file — no build step, no dependencies.
   Note: the pitch model uses 12-tone equal temperament, not just intonation.
 -->
@@ -170,24 +174,24 @@
   }
   .legend b { font-size: 15px; vertical-align: -1px; }
 
-  /* ── MIDI keyboard: combined button group + config popover ── */
-  .midi-group { display: inline-flex; align-self: flex-end; position: relative; }
-  .midi-group button {
+  /* ── Combined button group + config popover (MIDI, Metronome) ── */
+  .midi-group, .metro-group { display: inline-flex; align-self: flex-end; position: relative; }
+  .midi-group button, .metro-group button {
     border-radius: 0;
     margin: 0;
     height: 46px;
   }
-  .midi-group button:first-child { border-radius: 8px 0 0 8px; }
-  .midi-group button:last-child { border-radius: 0 8px 8px 0; border-left: none; }
-  #midiToggle.connected {
+  .midi-group button:first-child, .metro-group button:first-child { border-radius: 8px 0 0 8px; }
+  .midi-group button:last-child, .metro-group button:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+  #midiToggle.connected, #metroToggle.on {
     background: var(--green);
     border-color: var(--green);
     color: #fff8ec;
   }
-  #midiToggle.connected:hover { background: #256828; border-color: #256828; }
-  #midiConfigBtn { padding: 0 12px; }
+  #midiToggle.connected:hover, #metroToggle.on:hover { background: #256828; border-color: #256828; }
+  #midiConfigBtn, #metroConfigBtn { padding: 0 12px; }
 
-  .midi-popover {
+  .midi-popover, .metro-popover {
     position: absolute;
     bottom: calc(100% + 8px);
     left: 0;
@@ -202,17 +206,34 @@
     border-radius: 12px;
     box-shadow: 0 6px 20px rgba(90,40,10,0.22);
   }
-  .midi-popover.open { display: flex; }
-  .midi-popover .field { gap: 4px; }
-  .midi-popover select { min-width: 100%; }
+  .midi-popover.open, .metro-popover.open { display: flex; }
+  .midi-popover .field, .metro-popover .field { gap: 4px; }
+  .midi-popover select, .metro-popover select { min-width: 100%; }
   .midi-status { font-size: 11px; color: var(--muted); }
-  .midi-adj { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .midi-adj > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
-  .midi-adj .stepper { display: inline-flex; align-items: center; gap: 8px; }
-  .midi-adj .stepper button { width: 30px; height: 30px; padding: 0; font-weight: 700; }
-  .midi-adj .val { min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
-  .midi-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
-  .midi-check input { accent-color: var(--accent); cursor: pointer; }
+  .midi-adj, .metro-adj { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .midi-adj > span:first-child, .metro-adj > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
+  .midi-adj .stepper, .metro-adj .stepper { display: inline-flex; align-items: center; gap: 8px; }
+  .midi-adj .stepper button, .metro-adj .stepper button { width: 30px; height: 30px; padding: 0; font-weight: 700; }
+  .midi-adj .val, .metro-adj .val { min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+  .midi-check, .metro-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .midi-check input, .metro-check input { accent-color: var(--accent); cursor: pointer; }
+
+  /* ── Metronome popover specifics ── */
+  .metro-popover { min-width: 260px; }
+  .metro-bpm-display { text-align: center; font-family: 'Lora', Georgia, serif; }
+  .metro-bpm-display .bpm-num { font-size: 34px; font-weight: 700; line-height: 1; }
+  .metro-bpm-display .bpm-unit { font-size: 13px; color: var(--muted); letter-spacing: 1px; }
+  .metro-bpm-row { display: flex; align-items: center; gap: 10px; }
+  .metro-bpm-row input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+  .metro-round { width: 34px; height: 34px; border-radius: 50%; padding: 0; font-weight: 700; font-size: 18px; flex: none; }
+  .metro-beats { display: flex; justify-content: center; gap: 10px; padding: 2px 0; }
+  .metro-beats .beat { width: 16px; height: 16px; border-radius: 50%; background: var(--line); transition: background 0.05s, transform 0.05s; }
+  .metro-beats .beat.accent { box-shadow: inset 0 0 0 2px var(--line-strong); }
+  .metro-beats .beat.active { background: var(--green); transform: scale(1.15); }
+  .metro-beats .beat.active.accent { background: var(--accent); }
+  .metro-btns { display: flex; gap: 8px; }
+  .metro-btns button { flex: 1; height: 40px; }
+  #metroStartStop.running { background: var(--accent-dark); border-color: #943010; color: #fff8ec; }
 </style>
 </head>
 <body>
@@ -291,6 +312,48 @@
               </span>
             </div>
             <div class="midi-status" id="midiStatus">Not connected</div>
+          </div>
+        </div>
+        <div class="metro-group">
+          <button id="metroToggle" title="Start / stop the metronome">🎵 Metronome</button>
+          <button id="metroConfigBtn" title="Metronome settings" aria-label="Metronome settings">⚙</button>
+          <div class="metro-popover" id="metroPopover">
+            <div class="metro-beats" id="metroBeats"></div>
+            <div class="metro-bpm-row">
+              <button class="metro-round" id="metroBpmDown" aria-label="Decrease tempo">−</button>
+              <input type="range" id="metroBpmSlider" min="30" max="250" step="1" value="80">
+              <button class="metro-round" id="metroBpmUp" aria-label="Increase tempo">+</button>
+            </div>
+            <div class="metro-bpm-display">
+              <span class="bpm-num" id="metroBpmNum">80</span> <span class="bpm-unit">BPM</span>
+            </div>
+            <div class="field">
+              <label for="metroBeatsSelect">Beats per bar</label>
+              <select id="metroBeatsSelect">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+              </select>
+            </div>
+            <div class="metro-btns">
+              <button id="metroStartStop">▶ Start</button>
+              <button id="metroTap">Tap tempo</button>
+            </div>
+            <label class="metro-check">
+              <input type="checkbox" id="metroMuteToggle">
+              Play&nbsp;
+              <select id="metroPlayBars" style="min-width:auto;padding:2px 6px">
+                <option>1</option><option>2</option><option>3</option><option>4</option>
+              </select>
+              &nbsp;bar and mute&nbsp;
+              <select id="metroMuteBars" style="min-width:auto;padding:2px 6px">
+                <option>1</option><option>2</option><option>3</option><option>4</option>
+              </select>
+              &nbsp;bar
+            </label>
           </div>
         </div>
       </div>
@@ -1185,6 +1248,167 @@
   });
   document.getElementById("midiTransUp").addEventListener("click", () => {
     if (midiTranspose < 12) { midiTranspose++; midiTransVal.textContent = fmtShift(midiTranspose); }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  //  METRONOME
+  //  A steady click track with adjustable tempo (BPM), beats-per-bar,
+  //  tap tempo, and an optional "play N bars / mute M bars" practice
+  //  mode. Clicks are scheduled ahead of time on a dedicated
+  //  AudioContext using the standard look-ahead scheduler pattern, so
+  //  timing stays rock-solid regardless of frame rate. The accented
+  //  first beat of each bar gets a higher-pitched click.
+  // ─────────────────────────────────────────────────────────────
+  const metroToggle = document.getElementById("metroToggle");
+  const metroConfigBtn = document.getElementById("metroConfigBtn");
+  const metroPopover = document.getElementById("metroPopover");
+  const metroBeatsEl = document.getElementById("metroBeats");
+  const metroBpmSlider = document.getElementById("metroBpmSlider");
+  const metroBpmNum = document.getElementById("metroBpmNum");
+  const metroBpmDown = document.getElementById("metroBpmDown");
+  const metroBpmUp = document.getElementById("metroBpmUp");
+  const metroBeatsSelect = document.getElementById("metroBeatsSelect");
+  const metroStartStop = document.getElementById("metroStartStop");
+  const metroTap = document.getElementById("metroTap");
+  const metroMuteToggle = document.getElementById("metroMuteToggle");
+  const metroPlayBars = document.getElementById("metroPlayBars");
+  const metroMuteBars = document.getElementById("metroMuteBars");
+
+  let metroAudioCtx = null;
+  let metroRunning = false;
+  let metroBpm = 80;
+  let metroBeatsPerBar = 4;
+  let metroNextNoteTime = 0;   // AudioContext time of the next click
+  let metroBeatInBar = 0;      // 0-based beat index within the current bar
+  let metroBarCount = 0;       // bars elapsed since start (for play/mute cycle)
+  let metroTimer = null;       // setInterval id for the scheduler
+  const METRO_LOOKAHEAD = 0.1; // seconds to schedule ahead
+  const METRO_INTERVAL = 25;   // ms between scheduler ticks
+  let metroTapTimes = [];      // recent tap timestamps (ms) for tap tempo
+
+  function buildBeatDots() {
+    metroBeatsEl.innerHTML = "";
+    for (let i = 0; i < metroBeatsPerBar; i++) {
+      const d = document.createElement("div");
+      d.className = "beat" + (i === 0 ? " accent" : "");
+      metroBeatsEl.appendChild(d);
+    }
+  }
+
+  function setMetroBpm(bpm) {
+    metroBpm = Math.max(30, Math.min(250, Math.round(bpm)));
+    metroBpmSlider.value = metroBpm;
+    metroBpmNum.textContent = metroBpm;
+  }
+
+  // Is the current bar audible under the play/mute practice cycle?
+  function metroBarAudible() {
+    if (!metroMuteToggle.checked) return true;
+    const play = parseInt(metroPlayBars.value, 10);
+    const mute = parseInt(metroMuteBars.value, 10);
+    const cyc = play + mute;
+    return (metroBarCount % cyc) < play;
+  }
+
+  function scheduleClick(beat, time, audible) {
+    // Highlight the beat dot in sync with the scheduled audio time.
+    const delayMs = Math.max(0, (time - metroAudioCtx.currentTime) * 1000);
+    setTimeout(() => {
+      const dots = metroBeatsEl.children;
+      for (const d of dots) d.classList.remove("active");
+      if (dots[beat]) dots[beat].classList.add("active");
+    }, delayMs);
+
+    if (!audible) return;
+    const osc = metroAudioCtx.createOscillator();
+    const gain = metroAudioCtx.createGain();
+    const accent = beat === 0;
+    osc.type = "sine";
+    osc.frequency.value = accent ? 1600 : 1000;
+    const peak = accent ? 0.5 : 0.32;
+    gain.gain.setValueAtTime(0, time);
+    gain.gain.linearRampToValueAtTime(peak, time + 0.001);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
+    osc.connect(gain);
+    gain.connect(metroAudioCtx.destination);
+    osc.start(time);
+    osc.stop(time + 0.06);
+  }
+
+  function metroScheduler() {
+    const secondsPerBeat = 60.0 / metroBpm;
+    while (metroNextNoteTime < metroAudioCtx.currentTime + METRO_LOOKAHEAD) {
+      scheduleClick(metroBeatInBar, metroNextNoteTime, metroBarAudible());
+      metroNextNoteTime += secondsPerBeat;
+      metroBeatInBar++;
+      if (metroBeatInBar >= metroBeatsPerBar) {
+        metroBeatInBar = 0;
+        metroBarCount++;
+      }
+    }
+  }
+
+  function startMetro() {
+    if (metroRunning) return;
+    if (!metroAudioCtx || metroAudioCtx.state === "closed") {
+      metroAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (metroAudioCtx.state === "suspended") metroAudioCtx.resume();
+    metroRunning = true;
+    metroBeatInBar = 0;
+    metroBarCount = 0;
+    metroNextNoteTime = metroAudioCtx.currentTime + 0.05;
+    metroTimer = setInterval(metroScheduler, METRO_INTERVAL);
+    metroToggle.classList.add("on");
+    metroStartStop.classList.add("running");
+    metroStartStop.textContent = "■ Stop";
+  }
+
+  function stopMetro() {
+    metroRunning = false;
+    if (metroTimer) { clearInterval(metroTimer); metroTimer = null; }
+    for (const d of metroBeatsEl.children) d.classList.remove("active");
+    metroToggle.classList.remove("on");
+    metroStartStop.classList.remove("running");
+    metroStartStop.textContent = "▶ Start";
+  }
+
+  function toggleMetro() { if (metroRunning) stopMetro(); else startMetro(); }
+
+  buildBeatDots();
+  setMetroBpm(metroBpm);
+
+  metroToggle.addEventListener("click", toggleMetro);
+  metroStartStop.addEventListener("click", toggleMetro);
+  metroConfigBtn.addEventListener("click", () => metroPopover.classList.toggle("open"));
+  document.addEventListener("click", (e) => {
+    if (!metroPopover.classList.contains("open")) return;
+    if (!e.target.closest(".metro-group")) metroPopover.classList.remove("open");
+  });
+
+  metroBpmSlider.addEventListener("input", () => setMetroBpm(parseInt(metroBpmSlider.value, 10)));
+  metroBpmDown.addEventListener("click", () => setMetroBpm(metroBpm - 1));
+  metroBpmUp.addEventListener("click", () => setMetroBpm(metroBpm + 1));
+  metroBeatsSelect.addEventListener("change", () => {
+    metroBeatsPerBar = parseInt(metroBeatsSelect.value, 10);
+    metroBeatInBar = 0;
+    buildBeatDots();
+  });
+
+  // Tap tempo: average the interval of the last few taps (within 2 s).
+  metroTap.addEventListener("click", () => {
+    const now = performance.now();
+    if (metroTapTimes.length && now - metroTapTimes[metroTapTimes.length - 1] > 2000) {
+      metroTapTimes = [];
+    }
+    metroTapTimes.push(now);
+    if (metroTapTimes.length > 5) metroTapTimes.shift();
+    if (metroTapTimes.length >= 2) {
+      let sum = 0;
+      for (let i = 1; i < metroTapTimes.length; i++) sum += metroTapTimes[i] - metroTapTimes[i - 1];
+      const avgMs = sum / (metroTapTimes.length - 1);
+      setMetroBpm(60000 / avgMs);
+    }
   });
 
   // Initial render
