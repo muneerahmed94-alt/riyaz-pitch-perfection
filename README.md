@@ -69,7 +69,7 @@ There is no build step and there are no dependencies. The entire app is one
 | ---- | ------------ |
 | Sa frequency | Derived from the selected MIDI note: `440 · 2^((midi − 69) / 12)`. |
 | Capture | `getUserMedia` → Web Audio `AnalyserNode` (FFT size 2048). |
-| Pitch detection | Autocorrelation over a bounded lag window (~70–1100 Hz) so it locks onto the vocal fundamental instead of a harmonic. Parabolic interpolation refines the estimate. |
+| Pitch detection | McLeod Pitch Method (NSDF) over a bounded lag window (~70–1100 Hz). Picking the first NSDF peak above 90% of the maximum locks onto the true fundamental instead of its octave-down sub-harmonic (which plain autocorrelation reports on higher notes). Parabolic interpolation refines the estimate. |
 | Mapping | Frequency → semitones above Sa (`12 · log2(f / Sa)`), snapped to the nearest swara; the remaining error in cents drives the colour. |
 | Stability | Light exponential smoothing plus an octave-jump guard reduce flicker and harmonic errors. |
 | Rendering | A `<canvas>` draws the swara grid and a scrolling coloured pitch trail, tiered per frame (green ±10¢ / teal ±20¢ / yellow ±35¢ / red beyond). |

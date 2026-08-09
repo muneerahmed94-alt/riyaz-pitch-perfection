@@ -11,9 +11,10 @@
        derived from its MIDI number.
     2. On "Practice", we request the microphone via getUserMedia and feed it
        into a Web Audio AnalyserNode.
-    3. Each animation frame we grab a time-domain buffer and run an
-       autocorrelation pitch detector (see detectPitch) to estimate the sung
-       fundamental frequency in Hz.
+    3. Each animation frame we grab a time-domain buffer and run the McLeod
+       Pitch Method / NSDF detector (see detectPitch) to estimate the sung
+       fundamental frequency in Hz — robust against octave-halving on higher
+       notes.
     4. The frequency is converted to "semitones above Sa" (freqToRel), snapped
        to the nearest swara, and the cents-off-from-perfect drives the colour:
        green (±10¢) / teal (±20¢) / yellow (±35¢) / red (further off).
@@ -498,10 +499,14 @@
     }
   }
 
-  // ---- Autocorrelation pitch detection ----
-  // Only search lags corresponding to a plausible singing range. This stops
-  // the detector from latching onto a high harmonic (which produced bogus
-  // multi-kHz readings and made the trail jump off the correct swara line).
+  // ---- Pitch detection: McLeod Pitch Method (NSDF) ----
+  // We only search lags in a plausible singing range, and — crucially — we
+  // pick the FIRST NSDF peak that clears 90% of the maximum peak, not the
+  // global maximum. A plain autocorrelation tends to peak just as strongly at
+  // twice the true period (the sub-harmonic), so it reports HALF the real
+  // frequency on higher notes — the classic "octave-halving" error that made
+  // N / S' jump around and read the right label at the wrong Hz. Preferring
+  // the shortest-lag strong peak locks onto the true fundamental instead.
   const MIN_HZ = 70;    // below Mandra Sa for most voices
   const MAX_HZ = 1100;  // above Taar Sa
   function detectPitch(buffer, sampleRate) {
@@ -511,36 +516,52 @@
     rms = Math.sqrt(rms / SIZE);
     if (rms < 0.01) return -1;   // too quiet
 
-    const minLag = Math.floor(sampleRate / MAX_HZ);
-    const maxLag = Math.min(Math.floor(sampleRate / MIN_HZ), Math.floor(SIZE / 2));
+    const minLag = Math.max(1, Math.floor(sampleRate / MAX_HZ));
+    const maxLag = Math.min(Math.floor(sampleRate / MIN_HZ), SIZE - 1);
 
-    // Normalized autocorrelation over the valid lag window.
-    let bestLag = -1, bestVal = 0;
+    // Normalized Square Difference Function (McLeod & Wyvill, 2005):
+    //   nsdf(τ) = 2·Σ x[i]·x[i+τ] / Σ (x[i]² + x[i+τ]²)   ∈ [-1, 1]
+    // It peaks at ~1.0 at the true period and its multiples, but the
+    // denominator normalizes out the length-of-window bias that skews plain
+    // autocorrelation toward lower frequencies.
+    const nsdf = new Float32Array(maxLag + 1);
     for (let lag = minLag; lag <= maxLag; lag++) {
-      let corr = 0, norm = 0;
+      let acf = 0, m = 0;
       for (let i = 0; i < SIZE - lag; i++) {
-        corr += buffer[i] * buffer[i + lag];
-        norm += buffer[i + lag] * buffer[i + lag];
+        acf += buffer[i] * buffer[i + lag];
+        m += buffer[i] * buffer[i] + buffer[i + lag] * buffer[i + lag];
       }
-      const nc = norm > 0 ? corr / Math.sqrt(norm * norm + 1e-9) : 0;
-      // find the first strong peak (a local max), not just the global one
-      if (nc > bestVal) { bestVal = nc; bestLag = lag; }
+      nsdf[lag] = m > 0 ? (2 * acf) / m : 0;
     }
-    // require a reasonably periodic signal, else treat as no clear pitch
-    if (bestLag < 0 || bestVal < 0.5) return -1;
 
-    // parabolic interpolation around the peak for sub-sample accuracy
-    let T0 = bestLag;
-    if (bestLag > minLag && bestLag < maxLag) {
-      let x1 = 0, x2 = 0, x3 = 0;
-      for (let i = 0; i < SIZE - (bestLag + 1); i++) {
-        x1 += buffer[i] * buffer[i + bestLag - 1];
-        x2 += buffer[i] * buffer[i + bestLag];
-        x3 += buffer[i] * buffer[i + bestLag + 1];
+    // Collect local-maxima lags and track the strongest peak value.
+    let maxVal = 0;
+    const peaks = [];
+    for (let lag = minLag + 1; lag < maxLag; lag++) {
+      if (nsdf[lag] > nsdf[lag - 1] && nsdf[lag] >= nsdf[lag + 1]) {
+        peaks.push(lag);
+        if (nsdf[lag] > maxVal) maxVal = nsdf[lag];
       }
-      const a = (x1 + x3 - 2 * x2) / 2;
-      const bb = (x3 - x1) / 2;
-      if (a) T0 = bestLag - bb / (2 * a);
+    }
+    // Require a reasonably periodic signal, else treat as no clear pitch.
+    if (peaks.length === 0 || maxVal < 0.5) return -1;
+
+    // Pick the first (shortest-lag) peak that clears 90% of the max — the
+    // fundamental, not its octave-down sub-harmonic.
+    const threshold = 0.9 * maxVal;
+    let chosen = -1;
+    for (const p of peaks) {
+      if (nsdf[p] >= threshold) { chosen = p; break; }
+    }
+    if (chosen < 0) return -1;
+
+    // Parabolic interpolation around the chosen peak for sub-sample accuracy.
+    let T0 = chosen;
+    if (chosen > minLag && chosen < maxLag) {
+      const y1 = nsdf[chosen - 1], y2 = nsdf[chosen], y3 = nsdf[chosen + 1];
+      const a = (y1 + y3 - 2 * y2) / 2;
+      const b = (y3 - y1) / 2;
+      if (a) T0 = chosen - b / (2 * a);
     }
     return sampleRate / T0;
   }
@@ -588,11 +609,13 @@
 
     if (freq > 0) {
       let rel = freqToRel(freq);
-      // Octave-jump guard: if the new reading is ~an octave off the previous
-      // one (classic harmonic error), fold it back toward the last pitch.
+      // Octave-error guard: only correct readings that land NEAR a full octave
+      // (±1.5 semitones of 12) away from the current pitch — the signature of a
+      // detector octave slip. A wider guard would wrongly fold genuine melodic
+      // leaps (e.g. S→P, a 7-semitone jump) back by an octave.
       if (smoothRel != null) {
-        while (rel - smoothRel > 6) rel -= 12;
-        while (smoothRel - rel > 6) rel += 12;
+        while (rel - smoothRel > 10.5) rel -= 12;
+        while (smoothRel - rel > 10.5) rel += 12;
       }
       // Light exponential smoothing to steady the line.
       smoothRel = smoothRel == null ? rel : smoothRel + (rel - smoothRel) * 0.4;
