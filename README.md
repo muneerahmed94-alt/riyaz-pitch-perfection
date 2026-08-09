@@ -35,6 +35,8 @@ There is no build step and there are no dependencies. The entire app is one
   - **Brand** — harmonium voice: Paul & Co / Pakrashi / DSR / MKS
   - **Reed** — reed-bank stop (Bass-Male, Bass-Male-Female, … Bass-Bass-Male-Female)
   - **Coupler** — add an octave below (Left) or above (Right)
+  - **Velocity sensitivity** — off by default (every note plays at a fixed
+    moderate level, like a steady drone); enable to let key velocity scale loudness
   - **Octave** — shift the keyboard ±3 octaves
   - **Transpose** — shift ±12 semitones (align the keyboard to your Sa)
 

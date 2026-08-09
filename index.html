@@ -210,6 +210,8 @@
   .midi-adj .stepper { display: inline-flex; align-items: center; gap: 8px; }
   .midi-adj .stepper button { width: 30px; height: 30px; padding: 0; font-weight: 700; }
   .midi-adj .val { min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
+  .midi-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); cursor: pointer; }
+  .midi-check input { accent-color: var(--accent); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -268,6 +270,9 @@
                 <option value="right">Right (octave up)</option>
               </select>
             </div>
+            <label class="midi-check">
+              <input type="checkbox" id="midiVelocity"> Velocity sensitivity
+            </label>
             <div class="midi-adj">
               <span>Octave</span>
               <span class="stepper">
@@ -700,6 +705,7 @@
   const midiBrandSelect = document.getElementById("midiBrandSelect");
   const midiReedSelect = document.getElementById("midiReedSelect");
   const midiCouplerSelect = document.getElementById("midiCouplerSelect");
+  const midiVelocity = document.getElementById("midiVelocity");
   const midiStatus = document.getElementById("midiStatus");
   const midiOctVal = document.getElementById("midiOctVal");
   const midiTransVal = document.getElementById("midiTransVal");
@@ -1007,7 +1013,10 @@
 
     const adjusted = note + midiOctaveShift * 12 + midiTranspose;
     const freq = midiNoteToFreq(adjusted);
-    const velScale = (velocity || 96) / 127;
+    // Velocity sensitivity is opt-in. When off, every note plays at a fixed
+    // moderate level (like a drone/harmonium held steady); when on, the key's
+    // real velocity scales the loudness.
+    const velScale = midiVelocity.checked ? (velocity || 96) / 127 : 0.75;
 
     const masterGain = midiAudioCtx.createGain();
     masterGain.gain.value = velScale;
