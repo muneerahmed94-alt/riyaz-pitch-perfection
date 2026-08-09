@@ -167,10 +167,10 @@
     color: var(--text);
     font-size: 12px;
     font-weight: 500;
-    align-self: center;
     text-align: center;
-    flex: 1;
+    width: 100%;
     white-space: nowrap;
+    padding-bottom: 8px;
   }
   .legend b { font-size: 15px; vertical-align: -1px; }
 
@@ -360,12 +360,6 @@
           </div>
         </div>
       </div>
-      <div class="legend">
-        <span><b style="color:var(--green)">●</b> Perfect (±10¢)</span> &nbsp;
-        <span><b style="color:var(--teal)">●</b> Good (±20¢)</span> &nbsp;
-        <span><b style="color:var(--yellow)">●</b> Close (±35¢)</span> &nbsp;
-        <span><b style="color:var(--red)">●</b> Off pitch</span>
-      </div>
       <div class="footer-right">
         <div class="note-block">
           <div class="pill"><span id="statusDot" class="dot"></span><span id="noteName" class="big">—</span></div>
@@ -377,6 +371,12 @@
         <button id="practiceBtn" class="btn-primary">▶ Practice</button>
         <div class="status" id="statusText"></div>
       </div>
+    </div>
+    <div class="legend">
+      <span><b style="color:var(--green)">●</b> Perfect (±10¢)</span> &nbsp;
+      <span><b style="color:var(--teal)">●</b> Good (±20¢)</span> &nbsp;
+      <span><b style="color:var(--yellow)">●</b> Close (±35¢)</span> &nbsp;
+      <span><b style="color:var(--red)">●</b> Off pitch</span>
     </div>
   </div>
 
