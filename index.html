@@ -796,7 +796,7 @@
   });
 
   // Redraw grid when shruti/octave/range change
-  shrutiSelect.addEventListener("change", () => { draw(); syncTransposeFromShruti(); });
+  shrutiSelect.addEventListener("change", draw);
   rangeSelect.addEventListener("change", () => { refreshRange(); resizeCanvas(); draw(); });
 
   // ─────────────────────────────────────────────────────────────
@@ -1274,44 +1274,12 @@
   document.getElementById("midiOctUp").addEventListener("click", () => {
     if (midiOctaveShift < 3) { midiOctaveShift++; midiOctVal.textContent = fmtShift(midiOctaveShift); }
   });
-  // ── Two-way Shruti ⇄ Transpose sync ──────────────────────────
-  // Convenience: the MIDI keyboard's C key should sound Sa. Taking C3
-  // (MIDI 48) as the reference, transpose = shrutiMidi − 48. So Sa = C3 → 0,
-  // B2 → −1, C#3 → +1, etc. Changing either control updates the other. The
-  // shruti list only spans A2–A3 (MIDI 45–57), so we only sync within that
-  // window; a transpose outside it leaves the shruti unchanged.
-  const TRANSPOSE_REF_MIDI = 48;   // C3 — MIDI keyboard's C plays Sa here
-
-  function setTranspose(v) {
-    midiTranspose = Math.max(-12, Math.min(12, v));
-    midiTransVal.textContent = fmtShift(midiTranspose);
-  }
-
-  // Shruti changed → set transpose to match (no feedback loop: we only touch
-  // the transpose display/value, which doesn't re-fire the shruti listener).
-  function syncTransposeFromShruti() {
-    const shrutiMidi = parseInt(shrutiSelect.value, 10);
-    setTranspose(shrutiMidi - TRANSPOSE_REF_MIDI);
-  }
-
-  // Transpose changed → move shruti to the matching note if it's in the list.
-  function syncShrutiFromTranspose() {
-    const target = String(TRANSPOSE_REF_MIDI + midiTranspose);
-    if ([...shrutiSelect.options].some(o => o.value === target) && shrutiSelect.value !== target) {
-      shrutiSelect.value = target;
-      draw();   // redraw grid for the new Sa (don't re-sync transpose)
-    }
-  }
-
   document.getElementById("midiTransDown").addEventListener("click", () => {
-    if (midiTranspose > -12) { setTranspose(midiTranspose - 1); syncShrutiFromTranspose(); }
+    if (midiTranspose > -12) { midiTranspose--; midiTransVal.textContent = fmtShift(midiTranspose); }
   });
   document.getElementById("midiTransUp").addEventListener("click", () => {
-    if (midiTranspose < 12) { setTranspose(midiTranspose + 1); syncShrutiFromTranspose(); }
+    if (midiTranspose < 12) { midiTranspose++; midiTransVal.textContent = fmtShift(midiTranspose); }
   });
-
-  // Initialise transpose to match the default shruti.
-  syncTransposeFromShruti();
 
   // ─────────────────────────────────────────────────────────────
   //  METRONOME
