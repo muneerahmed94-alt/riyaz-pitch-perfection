@@ -47,7 +47,7 @@ There is no build step and there are no dependencies. The entire app is one
   It runs on its own AudioContext, independent of the microphone/pitch engine.
   (Requires a browser with Web MIDI support — Chrome/Edge; Safari/Firefox may
   need it enabled.)
-- **Metronome (optional)** — a footer **🎵 Metronome** button starts/stops a
+- **Metronome (optional)** — a footer **Metronome** button starts/stops a
   click track; the adjacent **⚙** opens a config popover:
   - **Tempo** — 30–250 BPM via slider, ± buttons, or **Tap tempo**
   - **Beats per bar** — 2–7, with the first beat accented (higher click) and a

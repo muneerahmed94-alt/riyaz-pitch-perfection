@@ -28,7 +28,7 @@
   reed PeriodicWave → per-brand cabinet biquads → room reverb; see the MIDI
   KEYBOARD section), with Brand/Reed/Coupler and Octave/Transpose controls.
 
-  Optional metronome (footer "🎵 Metronome" button + ⚙ config): a look-ahead
+  Optional metronome (footer "Metronome" button + ⚙ config): a look-ahead
   scheduled click track with adjustable BPM, beats-per-bar, and tap tempo
   (see the METRONOME section).
 
@@ -190,6 +190,8 @@
   }
   #midiToggle.connected:hover, #metroToggle.on:hover { background: #256828; border-color: #256828; }
   #midiConfigBtn, #metroConfigBtn { padding: 0 12px; }
+  #metroToggle { display: inline-flex; align-items: center; gap: 7px; }
+  .metro-icon { vertical-align: -3px; }
 
   .midi-popover, .metro-popover {
     position: absolute;
@@ -328,7 +330,7 @@
           </div>
         </div>
         <div class="metro-group">
-          <button id="metroToggle" title="Start / stop the metronome">🎵 Metronome</button>
+          <button id="metroToggle" title="Start / stop the metronome"><svg class="metro-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2h6l4 19H5L9 2z"/><line x1="12" y1="6" x2="12" y2="15"/><line x1="12" y1="15" x2="19" y2="8"/><line x1="4" y1="17" x2="20" y2="17"/></svg> Metronome</button>
           <button id="metroConfigBtn" title="Metronome settings" aria-label="Metronome settings">⚙</button>
           <div class="metro-popover" id="metroPopover">
             <div class="metro-beats" id="metroBeats"></div>
@@ -1223,7 +1225,12 @@
   let midiEnabled = false;
   midiToggle.addEventListener("click", () => {
     midiEnabled = !midiEnabled;
-    if (midiEnabled) connectMidi(); else disconnectMidi();
+    if (midiEnabled) {
+      connectMidi();
+      midiPopover.classList.add("open");   // reveal config when turned on
+    } else {
+      disconnectMidi();
+    }
   });
   midiConfigBtn.addEventListener("click", () => midiPopover.classList.toggle("open"));
   // close popover on outside click
@@ -1355,7 +1362,14 @@
     metroStartStop.textContent = "▶ Start";
   }
 
-  function toggleMetro() { if (metroRunning) stopMetro(); else startMetro(); }
+  function toggleMetro() {
+    if (metroRunning) {
+      stopMetro();
+    } else {
+      startMetro();
+      metroPopover.classList.add("open");   // reveal config when turned on
+    }
+  }
 
   buildBeatDots();
   setMetroBpm(metroBpm);
