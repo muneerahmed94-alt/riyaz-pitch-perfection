@@ -238,8 +238,10 @@
   .metro-bpm-display .bpm-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .metro-bpm-display .bpm-num { -moz-appearance: textfield; }
   .metro-bpm-display .bpm-unit { font-size: 13px; color: var(--muted); letter-spacing: 1px; }
-  .metro-bpm-row { display: flex; align-items: center; gap: 10px; }
-  .metro-bpm-row input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+  .metro-bpm-row, .metro-vol-row { display: flex; align-items: center; gap: 10px; }
+  .metro-bpm-row input[type="range"], .metro-vol-row input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+  .metro-vol-row .metro-round { width: 30px; height: 30px; font-size: 16px; }
+  #metroVolVal { color: var(--text); font-weight: 700; }
   .metro-round { width: 34px; height: 34px; border-radius: 50%; padding: 0; font-weight: 700; font-size: 18px; flex: none; }
   .metro-beats { display: flex; justify-content: center; gap: 10px; padding: 2px 0; }
   .metro-beats .beat { width: 16px; height: 16px; border-radius: 50%; background: var(--line); transition: background 0.05s, transform 0.05s; }
@@ -357,13 +359,13 @@
               <button id="metroStartStop">▶ Start</button>
               <button id="metroTap">Tap tempo</button>
             </div>
-            <div class="metro-adj">
-              <span>Volume</span>
-              <span class="stepper">
-                <button id="metroVolDown">−</button>
-                <span class="val" id="metroVolVal">5</span>
-                <button id="metroVolUp">+</button>
-              </span>
+            <div class="field">
+              <label for="metroVolSlider">Volume <span id="metroVolVal">5</span></label>
+              <div class="metro-vol-row">
+                <button class="metro-round" id="metroVolDown" aria-label="Decrease volume">−</button>
+                <input type="range" id="metroVolSlider" min="1" max="10" step="1" value="5">
+                <button class="metro-round" id="metroVolUp" aria-label="Increase volume">+</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1309,6 +1311,7 @@
   const metroStartStop = document.getElementById("metroStartStop");
   const metroTap = document.getElementById("metroTap");
   const metroVolVal = document.getElementById("metroVolVal");
+  const metroVolSlider = document.getElementById("metroVolSlider");
   const metroVolDown = document.getElementById("metroVolDown");
   const metroVolUp = document.getElementById("metroVolUp");
 
@@ -1342,6 +1345,7 @@
   function setMetroVolume(v) {
     metroVolume = Math.max(1, Math.min(10, v));
     metroVolVal.textContent = metroVolume;
+    metroVolSlider.value = metroVolume;
   }
 
   function scheduleClick(beat, time) {
@@ -1432,6 +1436,7 @@
     setMetroBpm(isNaN(v) ? metroBpm : v);
   });
   metroBpmNum.addEventListener("keydown", (e) => { if (e.key === "Enter") metroBpmNum.blur(); });
+  metroVolSlider.addEventListener("input", () => setMetroVolume(parseInt(metroVolSlider.value, 10)));
   metroVolDown.addEventListener("click", () => setMetroVolume(metroVolume - 1));
   metroVolUp.addEventListener("click", () => setMetroVolume(metroVolume + 1));
   metroBeatsSelect.addEventListener("change", () => {
