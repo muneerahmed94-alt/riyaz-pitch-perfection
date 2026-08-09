@@ -28,6 +28,17 @@ There is no build step and there are no dependencies. The entire app is one
   - 🔴 **Red** — off pitch
 - **Note readout** — the current swara, cents deviation, and detected frequency
   (Hz). A blinking red dot indicates the mic is listening.
+- **MIDI keyboard (optional)** — connect an external MIDI keyboard (Web MIDI
+  API) via the footer **🎹 MIDI** button to play a harmonium-style reference
+  along with your practice. The adjacent **⚙** opens a small config popover:
+  - **Device** — pick which connected MIDI input to listen to
+  - **Octave** — shift the keyboard ±3 octaves
+  - **Transpose** — shift ±12 semitones (align the keyboard to your Sa)
+
+  Notes are voiced by a lightweight built-in harmonium synth, independent of
+  the microphone/pitch engine, so you can sound the reference and match it.
+  (Requires a browser with Web MIDI support — Chrome/Edge; Safari/Firefox may
+  need it enabled.)
 
 ## Usage
 
@@ -54,6 +65,7 @@ There is no build step and there are no dependencies. The entire app is one
 | Mapping | Frequency → semitones above Sa (`12 · log2(f / Sa)`), snapped to the nearest swara; the remaining error in cents drives the colour. |
 | Stability | Light exponential smoothing plus an octave-jump guard reduce flicker and harmonic errors. |
 | Rendering | A `<canvas>` draws the swara grid and a scrolling coloured pitch trail, tiered per frame (green ±10¢ / teal ±20¢ / yellow ±35¢ / red beyond). |
+| MIDI (optional) | `navigator.requestMIDIAccess()` listens to the chosen input; note-on/off drive a small harmonium-style synth (detuned reed partials) on its own `AudioContext`, with octave/transpose offsets applied before frequency conversion. |
 
 ### A note on tuning
 

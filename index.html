@@ -16,9 +16,14 @@
        fundamental frequency in Hz.
     4. The frequency is converted to "semitones above Sa" (freqToRel), snapped
        to the nearest swara, and the cents-off-from-perfect drives the colour:
-       green (±10¢) / yellow (±35¢) / red (further off).
+       green (±10¢) / teal (±20¢) / yellow (±35¢) / red (further off).
     5. The pitch is plotted as a scrolling coloured trail on a <canvas> grid
        whose horizontal lines are the swaras.
+
+  Optional MIDI keyboard (footer "🎹 MIDI" button + ⚙ config): connect an
+  external keyboard via the Web MIDI API to play a harmonium drone/reference
+  alongside your singing. Notes are voiced by a small built-in harmonium-style
+  synth (see the MIDI KEYBOARD section) with Octave/Transpose to align to Sa.
 
   Everything lives in this one HTML file — no build step, no dependencies.
   Note: the pitch model uses 12-tone equal temperament, not just intonation.
@@ -161,6 +166,48 @@
     white-space: nowrap;
   }
   .legend b { font-size: 15px; vertical-align: -1px; }
+
+  /* ── MIDI keyboard: combined button group + config popover ── */
+  .midi-group { display: inline-flex; align-self: flex-end; position: relative; }
+  .midi-group button {
+    border-radius: 0;
+    margin: 0;
+    height: 46px;
+  }
+  .midi-group button:first-child { border-radius: 8px 0 0 8px; }
+  .midi-group button:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+  #midiToggle.connected {
+    background: var(--green);
+    border-color: var(--green);
+    color: #fff8ec;
+  }
+  #midiToggle.connected:hover { background: #256828; border-color: #256828; }
+  #midiConfigBtn { padding: 0 12px; }
+
+  .midi-popover {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 220px;
+    padding: 14px;
+    background: var(--panel);
+    border: 1.5px solid var(--line-strong);
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(90,40,10,0.22);
+  }
+  .midi-popover.open { display: flex; }
+  .midi-popover .field { gap: 4px; }
+  .midi-popover select { min-width: 100%; }
+  .midi-status { font-size: 11px; color: var(--muted); }
+  .midi-adj { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .midi-adj > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 600; }
+  .midi-adj .stepper { display: inline-flex; align-items: center; gap: 8px; }
+  .midi-adj .stepper button { width: 30px; height: 30px; padding: 0; font-weight: 700; }
+  .midi-adj .val { min-width: 26px; text-align: center; font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -182,6 +229,33 @@
             <option value="taar-sa">Taar Sa → Sa</option>
             <option value="mandraP-taarP" selected>Mandra Pa → Taar Pa</option>
           </select>
+        </div>
+        <div class="midi-group">
+          <button id="midiToggle" title="Connect a MIDI keyboard to play along">🎹 MIDI</button>
+          <button id="midiConfigBtn" title="MIDI settings" aria-label="MIDI settings">⚙</button>
+          <div class="midi-popover" id="midiPopover">
+            <div class="field">
+              <label for="midiDeviceSelect">Device</label>
+              <select id="midiDeviceSelect"><option>Not connected</option></select>
+            </div>
+            <div class="midi-adj">
+              <span>Octave</span>
+              <span class="stepper">
+                <button id="midiOctDown">−</button>
+                <span class="val" id="midiOctVal">0</span>
+                <button id="midiOctUp">+</button>
+              </span>
+            </div>
+            <div class="midi-adj">
+              <span>Transpose</span>
+              <span class="stepper">
+                <button id="midiTransDown">−</button>
+                <span class="val" id="midiTransVal">0</span>
+                <button id="midiTransUp">+</button>
+              </span>
+            </div>
+            <div class="midi-status" id="midiStatus">Not connected</div>
+          </div>
         </div>
       </div>
       <div class="legend">
@@ -577,6 +651,203 @@
   // Redraw grid when shruti/octave/range change
   shrutiSelect.addEventListener("change", draw);
   rangeSelect.addEventListener("change", () => { refreshRange(); resizeCanvas(); draw(); });
+
+  // ─────────────────────────────────────────────────────────────
+  //  MIDI KEYBOARD
+  //  Connect an external MIDI keyboard (Web MIDI API) to play along
+  //  while practicing. Notes are voiced by a small built-in synth
+  //  (harmonium-style reed or a pure sine) through its own persistent
+  //  AudioContext, so it works independently of the mic/pitch engine.
+  //  Octave/Transpose let you shift the keyboard to your Sa.
+  // ─────────────────────────────────────────────────────────────
+  const midiToggle = document.getElementById("midiToggle");
+  const midiConfigBtn = document.getElementById("midiConfigBtn");
+  const midiPopover = document.getElementById("midiPopover");
+  const midiDeviceSelect = document.getElementById("midiDeviceSelect");
+  const midiStatus = document.getElementById("midiStatus");
+  const midiOctVal = document.getElementById("midiOctVal");
+  const midiTransVal = document.getElementById("midiTransVal");
+
+  let midiAccess = null;        // MIDIAccess instance
+  let midiInput = null;         // currently listening MIDIInput
+  let midiAudioCtx = null;      // persistent AudioContext for playback
+  let midiMaster = null;        // shared output gain / limiter
+  const midiVoices = new Map(); // midi note number -> { stop(release) }
+  let midiOctaveShift = 0;      // ±3 octaves
+  let midiTranspose = 0;        // ±12 semitones
+
+  function midiNoteToFreq(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+  function fmtShift(v) { return v > 0 ? "+" + v : "" + v; }
+
+  function ensureMidiAudio() {
+    if (!midiAudioCtx || midiAudioCtx.state === "closed") {
+      midiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = midiAudioCtx.createDynamicsCompressor();
+      comp.threshold.value = -18; comp.ratio.value = 4;
+      comp.connect(midiAudioCtx.destination);
+      midiMaster = midiAudioCtx.createGain();
+      midiMaster.gain.value = 0.9;
+      midiMaster.connect(comp);
+    }
+    if (midiAudioCtx.state === "suspended") midiAudioCtx.resume();
+  }
+
+  // Build one voice for a note. Returns a release() to stop it gracefully.
+  function startVoice(freq, velocity) {
+    const ac = midiAudioCtx;
+    const now = ac.currentTime;
+    const g = ac.createGain();
+    g.connect(midiMaster);
+    const level = 0.28 * (velocity / 127);
+    const oscs = [];
+
+    // Harmonium-ish: a few detuned reedy partials for a warm buzz.
+    const specs = [
+      { type: "sawtooth", ratio: 1, gain: 1.0,  detune: -4 },
+      { type: "sawtooth", ratio: 1, gain: 0.6,  detune: +5 },
+      { type: "triangle", ratio: 2, gain: 0.35, detune: 0  },
+      { type: "sine",     ratio: 3, gain: 0.18, detune: 0  },
+    ];
+    for (const s of specs) {
+      const o = ac.createOscillator();
+      o.type = s.type;
+      o.frequency.value = freq * s.ratio;
+      o.detune.value = s.detune;
+      const vg = ac.createGain();
+      vg.gain.value = s.gain;
+      o.connect(vg); vg.connect(g);
+      o.start(now); oscs.push(o);
+    }
+
+    // Soft attack.
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(level, now + 0.02);
+
+    return function release() {
+      const t = ac.currentTime;
+      g.gain.cancelScheduledValues(t);
+      g.gain.setValueAtTime(g.gain.value, t);
+      g.gain.linearRampToValueAtTime(0, t + 0.12);
+      oscs.forEach(o => o.stop(t + 0.14));
+    };
+  }
+
+  function midiNoteOn(note, velocity) {
+    ensureMidiAudio();
+    if (midiVoices.has(note)) { midiVoices.get(note)(); midiVoices.delete(note); }
+    const adjusted = note + midiOctaveShift * 12 + midiTranspose;
+    midiVoices.set(note, startVoice(midiNoteToFreq(adjusted), velocity || 96));
+  }
+
+  function midiNoteOff(note) {
+    if (midiVoices.has(note)) { midiVoices.get(note)(); midiVoices.delete(note); }
+  }
+
+  function allMidiNotesOff() {
+    for (const rel of midiVoices.values()) rel();
+    midiVoices.clear();
+  }
+
+  function onMidiMessage(e) {
+    const [status, note, velocity] = e.data;
+    const cmd = status & 0xf0;
+    if (cmd === 0x90 && velocity > 0) midiNoteOn(note, velocity);
+    else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) midiNoteOff(note);
+    else if (cmd === 0xb0 && note === 123) allMidiNotesOff(); // all-notes-off
+  }
+
+  function listenTo(input) {
+    if (midiInput) midiInput.onmidimessage = null;
+    midiInput = input;
+    if (input) input.onmidimessage = onMidiMessage;
+  }
+
+  function populateMidiDevices() {
+    if (!midiAccess) return;
+    const inputs = Array.from(midiAccess.inputs.values());
+    midiDeviceSelect.innerHTML = "";
+    if (inputs.length === 0) {
+      const o = document.createElement("option");
+      o.textContent = "No devices found";
+      midiDeviceSelect.appendChild(o);
+      midiStatus.textContent = "No MIDI devices found";
+      listenTo(null);
+      setMidiConnectedUI(false);
+      return;
+    }
+    inputs.forEach((inp, i) => {
+      const o = document.createElement("option");
+      o.value = inp.id;
+      o.textContent = inp.name || ("MIDI Input " + (i + 1));
+      midiDeviceSelect.appendChild(o);
+    });
+    // keep current selection if still present, else first device
+    const keep = midiInput && inputs.some(i => i.id === midiInput.id) ? midiInput
+               : inputs[0];
+    midiDeviceSelect.value = keep.id;
+    listenTo(keep);
+    midiStatus.textContent = "Connected: " + (keep.name || "MIDI Device");
+    setMidiConnectedUI(true);
+  }
+
+  function setMidiConnectedUI(on) {
+    midiToggle.classList.toggle("connected", on);
+    midiToggle.textContent = on ? "🎹 MIDI ●" : "🎹 MIDI";
+  }
+
+  async function connectMidi() {
+    if (!navigator.requestMIDIAccess) {
+      midiStatus.textContent = "Web MIDI not supported in this browser";
+      midiPopover.classList.add("open");
+      return;
+    }
+    try {
+      midiAccess = await navigator.requestMIDIAccess();
+      ensureMidiAudio();  // user gesture — unlock audio
+      midiAccess.onstatechange = populateMidiDevices;
+      populateMidiDevices();
+    } catch (e) {
+      midiStatus.textContent = "MIDI access denied";
+    }
+  }
+
+  function disconnectMidi() {
+    allMidiNotesOff();
+    listenTo(null);
+    setMidiConnectedUI(false);
+    midiStatus.textContent = "Not connected";
+  }
+
+  let midiEnabled = false;
+  midiToggle.addEventListener("click", () => {
+    midiEnabled = !midiEnabled;
+    if (midiEnabled) connectMidi(); else disconnectMidi();
+  });
+  midiConfigBtn.addEventListener("click", () => midiPopover.classList.toggle("open"));
+  // close popover on outside click
+  document.addEventListener("click", (e) => {
+    if (!midiPopover.classList.contains("open")) return;
+    if (!e.target.closest(".midi-group")) midiPopover.classList.remove("open");
+  });
+
+  midiDeviceSelect.addEventListener("change", (e) => {
+    if (!midiAccess) return;
+    const input = Array.from(midiAccess.inputs.values()).find(i => i.id === e.target.value);
+    if (input) { listenTo(input); midiStatus.textContent = "Connected: " + (input.name || "MIDI Device"); }
+  });
+
+  document.getElementById("midiOctDown").addEventListener("click", () => {
+    if (midiOctaveShift > -3) { midiOctaveShift--; midiOctVal.textContent = fmtShift(midiOctaveShift); }
+  });
+  document.getElementById("midiOctUp").addEventListener("click", () => {
+    if (midiOctaveShift < 3) { midiOctaveShift++; midiOctVal.textContent = fmtShift(midiOctaveShift); }
+  });
+  document.getElementById("midiTransDown").addEventListener("click", () => {
+    if (midiTranspose > -12) { midiTranspose--; midiTransVal.textContent = fmtShift(midiTranspose); }
+  });
+  document.getElementById("midiTransUp").addEventListener("click", () => {
+    if (midiTranspose < 12) { midiTranspose++; midiTransVal.textContent = fmtShift(midiTranspose); }
+  });
 
   // Initial render
   resizeCanvas();
