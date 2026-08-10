@@ -536,7 +536,7 @@
   // an edge for a few CONSECUTIVE estimates (a sustained note) before scrolling.
   // A brief overshoot resets the counter, so quick wobbles don't move the view.
   const HEADROOM_SEMITONES = 4;   // notes to keep visible above AND below
-  const SCROLL_HOLD_FRAMES = 6;   // consecutive out-of-band estimates required (~130ms at 45 Hz)
+  const SCROLL_HOLD_FRAMES = 18;  // consecutive out-of-band estimates required (~400ms at 45 Hz)
   let scrollHoldDir = 0;          // -1 near top, +1 near bottom, 0 in band
   let scrollHoldCount = 0;
   function autoScrollTo(rel) {
