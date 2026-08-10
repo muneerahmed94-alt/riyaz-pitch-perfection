@@ -492,7 +492,7 @@
   const MAX_POINTS = 600;
 
   // ---- Resize canvas for crisp rendering ----
-  const PX_PER_SEMITONE = 34;   // vertical gap between adjacent swara lines
+  const PX_PER_SEMITONE = 41;   // vertical gap between adjacent swara lines
   const PAD_Y = 24;
   function resizeCanvas() {
     // Height scales with the range so line spacing stays generous.
@@ -535,7 +535,7 @@
       ctx.beginPath();
       ctx.moveTo(leftPad, y);
       ctx.lineTo(W - 8, y);
-      ctx.lineWidth = isSa ? 4 : (dense ? 2.5 : 3);
+      ctx.lineWidth = isSa ? 5 : (dense ? 3 : 3.6);
       ctx.strokeStyle = isSa ? "#d45a00" : "#c9b489";
       ctx.stroke();
 
@@ -558,7 +558,7 @@
         ctx.beginPath();
         ctx.moveTo(x0, relToY(p0.rel));
         ctx.lineTo(x1, relToY(p1.rel));
-        ctx.lineWidth = 3;   // match reference swara line thickness
+        ctx.lineWidth = 3.6;   // match reference swara line thickness
         ctx.lineCap = "round";
         ctx.strokeStyle = p1.color;
         ctx.stroke();
