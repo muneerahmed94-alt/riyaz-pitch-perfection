@@ -447,6 +447,15 @@
   let running = false;
   let buf = null;
   let smoothRel = null;   // smoothed semitone position for steadier tracking
+  // Detection is throttled to a fixed rate (independent of the 60 Hz display
+  // refresh) and passed through a small median filter, then an exponential
+  // moving average. This matches standard pitch-tracker practice (~30 analyses
+  // per second, outlier rejection + smoothing) and keeps the trail from
+  // twitching on every sub-frame vocal wobble or stray estimate.
+  const DETECT_HZ = 30;                       // pitch estimates per second
+  const DETECT_INTERVAL = 1000 / DETECT_HZ;   // ms between estimates
+  let lastDetectAt = 0;                        // timestamp of last estimate
+  const rawWindow = [];                        // recent raw rel values for median
 
   // ---- Pitch geometry (log-frequency mapping) ----
   // We map a vertical range that spans a bit below Sa to a bit above upper Sa.
@@ -701,8 +710,9 @@
     return base;
   }
 
-  function frame() {
-    if (!running) return;
+  // Run one pitch estimate and append a point to the trail. Called at the
+  // throttled DETECT_HZ rate, not on every animation frame.
+  function detectAndPush() {
     analyser.getFloatTimeDomainData(buf);
     const freq = detectPitch(buf, audioCtx.sampleRate);
 
@@ -716,8 +726,15 @@
         while (rel - smoothRel > 10.5) rel -= 12;
         while (smoothRel - rel > 10.5) rel += 12;
       }
-      // Light exponential smoothing to steady the line.
-      smoothRel = smoothRel == null ? rel : smoothRel + (rel - smoothRel) * 0.4;
+      // Median filter over the last 3 raw readings: rejects one-off outlier
+      // estimates (a single wild frame won't yank the line) without adding the
+      // lag a longer window would.
+      rawWindow.push(rel);
+      if (rawWindow.length > 3) rawWindow.shift();
+      const med = [...rawWindow].sort((a, b) => a - b)[Math.floor(rawWindow.length / 2)];
+      // Exponential smoothing on the median. Factor 0.25 ≈ a ~100 ms time
+      // constant at 30 Hz — steadies the line while still tracking real slides.
+      smoothRel = smoothRel == null ? med : smoothRel + (med - smoothRel) * 0.25;
       rel = smoothRel;
       const { label, centsOff, off } = nearestSwara(rel);
       const { color, tag } = colorForCents(centsOff);
@@ -736,6 +753,7 @@
       freqText.textContent = freq.toFixed(1) + " Hz";
     } else {
       smoothRel = null;
+      rawWindow.length = 0;
       history.push({ rel: null, color: "#888" });
       noteName.textContent = "—";
       noteName.style.color = "var(--muted)";
@@ -745,8 +763,17 @@
       freqText.textContent = "";
     }
     while (history.length > MAX_POINTS) history.shift();
+  }
 
-    draw();
+  // Animation loop: drives detection at a fixed cadence (DETECT_HZ) while the
+  // canvas redraws each frame for smooth scrolling.
+  function frame(now) {
+    if (!running) return;
+    if (now - lastDetectAt >= DETECT_INTERVAL) {
+      lastDetectAt = now;
+      detectAndPush();
+      draw();
+    }
     rafId = requestAnimationFrame(frame);
   }
 
@@ -779,10 +806,12 @@
       running = true;
       history.length = 0;
       smoothRel = null;
+      rawWindow.length = 0;
+      lastDetectAt = 0;
       practiceBtn.textContent = "■ Stop";
       practiceBtn.classList.add("stop");
       statusText.textContent = "";
-      frame();
+      rafId = requestAnimationFrame(frame);
     } catch (e) {
       statusText.textContent = "Could not start: " + e.message;
     }
