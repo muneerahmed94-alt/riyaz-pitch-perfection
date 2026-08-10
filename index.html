@@ -452,7 +452,7 @@
   // moving average. This matches standard pitch-tracker practice (~30 analyses
   // per second, outlier rejection + smoothing) and keeps the trail from
   // twitching on every sub-frame vocal wobble or stray estimate.
-  const DETECT_HZ = 30;                       // pitch estimates per second
+  const DETECT_HZ = 45;                       // pitch estimates per second
   const DETECT_INTERVAL = 1000 / DETECT_HZ;   // ms between estimates
   let lastDetectAt = 0;                        // timestamp of last estimate
   const rawWindow = [];                        // recent raw rel values for median
@@ -732,9 +732,9 @@
       rawWindow.push(rel);
       if (rawWindow.length > 3) rawWindow.shift();
       const med = [...rawWindow].sort((a, b) => a - b)[Math.floor(rawWindow.length / 2)];
-      // Exponential smoothing on the median. Factor 0.25 ≈ a ~100 ms time
-      // constant at 30 Hz — steadies the line while still tracking real slides.
-      smoothRel = smoothRel == null ? med : smoothRel + (med - smoothRel) * 0.25;
+      // Exponential smoothing on the median. Factor 0.35 at 45 Hz ≈ a ~50 ms
+      // time constant — responsive to real slides while still filtered.
+      smoothRel = smoothRel == null ? med : smoothRel + (med - smoothRel) * 0.35;
       rel = smoothRel;
       const { label, centsOff, off } = nearestSwara(rel);
       const { color, tag } = colorForCents(centsOff);
