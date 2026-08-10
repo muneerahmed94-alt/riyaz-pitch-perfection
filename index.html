@@ -531,7 +531,14 @@
   // least a few swaras of headroom BOTH above and below it. Only scrolls when
   // the pitch drifts into that margin near an edge of the viewport — if there's
   // already enough room on both sides, it stays put (no needless jitter).
+  //
+  // To avoid chasing momentary fluctuations, we require the pitch to sit past
+  // an edge for a few CONSECUTIVE estimates (a sustained note) before scrolling.
+  // A brief overshoot resets the counter, so quick wobbles don't move the view.
   const HEADROOM_SEMITONES = 4;   // notes to keep visible above AND below
+  const SCROLL_HOLD_FRAMES = 6;   // consecutive out-of-band estimates required (~130ms at 45 Hz)
+  let scrollHoldDir = 0;          // -1 near top, +1 near bottom, 0 in band
+  let scrollHoldCount = 0;
   function autoScrollTo(rel) {
     const scroller = canvas.parentElement;
     const view = scroller.clientHeight;
@@ -539,16 +546,22 @@
     const noteY = relToY(rel);                 // y within the full canvas
     const top = scroller.scrollTop;
     const bottom = top + view;
-    let target = top;
-    if (noteY < top + margin) {
-      // Too close to (or above) the top edge — scroll up to restore headroom.
-      target = noteY - margin;
-    } else if (noteY > bottom - margin) {
-      // Too close to (or below) the bottom edge — scroll down.
-      target = noteY - view + margin;
-    }
-    // Clamp to valid scroll range.
-    target = Math.max(0, Math.min(target, scroller.scrollHeight - view));
+
+    // Which edge (if any) is the pitch encroaching on this estimate?
+    const dir = noteY < top + margin ? -1
+              : noteY > bottom - margin ? 1
+              : 0;
+
+    // Require a sustained run in the same direction before committing a scroll.
+    if (dir === 0) { scrollHoldDir = 0; scrollHoldCount = 0; return; }
+    if (dir === scrollHoldDir) scrollHoldCount++;
+    else { scrollHoldDir = dir; scrollHoldCount = 1; }
+    if (scrollHoldCount < SCROLL_HOLD_FRAMES) return;
+
+    const target = Math.max(0, Math.min(
+      dir < 0 ? noteY - margin : noteY - view + margin,
+      scroller.scrollHeight - view
+    ));
     if (Math.abs(target - top) > 1) scroller.scrollTop = target;
   }
 
@@ -780,6 +793,7 @@
     } else {
       smoothRel = null;
       rawWindow.length = 0;
+      scrollHoldDir = 0; scrollHoldCount = 0;
       history.push({ rel: null, color: "#888" });
       noteName.textContent = "—";
       noteName.style.color = "var(--muted)";
