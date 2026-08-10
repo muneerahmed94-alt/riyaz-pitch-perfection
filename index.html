@@ -753,7 +753,12 @@
   // ---- Microphone + practice ----
   async function startPractice() {
     try {
+      // resizeCanvas() resets the canvas backing store (blanking it), and the
+      // getUserMedia() prompt below suspends us until the user responds — so
+      // redraw the grid immediately, otherwise the canvas sits empty behind
+      // the mic-permission popup.
       resizeCanvas();
+      draw();
       const constraints = {
         audio: {
           echoCancellation: false,
