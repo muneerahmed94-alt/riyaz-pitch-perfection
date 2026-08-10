@@ -527,25 +527,29 @@
     return PAD_Y + (1 - t) * h;
   }
 
-  // Auto-follow: keep the note being sung comfortably in view with at least a
-  // few swaras of headroom ABOVE it, so hitting the top of the range (e.g.
-  // singing taar S') doesn't require manually scrolling up.
-  const HEADROOM_SEMITONES = 5;   // notes to keep visible above the current pitch
+  // Auto-follow: keep the note being sung inside a comfortable band, with at
+  // least a few swaras of headroom BOTH above and below it. Only scrolls when
+  // the pitch drifts into that margin near an edge of the viewport — if there's
+  // already enough room on both sides, it stays put (no needless jitter).
+  const HEADROOM_SEMITONES = 4;   // notes to keep visible above AND below
   function autoScrollTo(rel) {
     const scroller = canvas.parentElement;
     const view = scroller.clientHeight;
-    // Target y (within the full canvas) of a point HEADROOM notes above `rel`.
-    const topY = relToY(rel + HEADROOM_SEMITONES);
-    // If that headroom point is above the current viewport, scroll up to it;
-    // if the sung note itself is below the viewport, scroll down to reveal it.
-    const noteY = relToY(rel);
-    let target = scroller.scrollTop;
-    if (topY < scroller.scrollTop) {
-      target = Math.max(0, topY);
-    } else if (noteY > scroller.scrollTop + view) {
-      target = noteY - view + PAD_Y;
+    const margin = HEADROOM_SEMITONES * PX_PER_SEMITONE;
+    const noteY = relToY(rel);                 // y within the full canvas
+    const top = scroller.scrollTop;
+    const bottom = top + view;
+    let target = top;
+    if (noteY < top + margin) {
+      // Too close to (or above) the top edge — scroll up to restore headroom.
+      target = noteY - margin;
+    } else if (noteY > bottom - margin) {
+      // Too close to (or below) the bottom edge — scroll down.
+      target = noteY - view + margin;
     }
-    if (Math.abs(target - scroller.scrollTop) > 1) scroller.scrollTop = target;
+    // Clamp to valid scroll range.
+    target = Math.max(0, Math.min(target, scroller.scrollHeight - view));
+    if (Math.abs(target - top) > 1) scroller.scrollTop = target;
   }
 
   function draw() {
