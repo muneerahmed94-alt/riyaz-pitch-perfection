@@ -18,8 +18,15 @@
     4. The frequency is converted to "semitones above Sa" (freqToRel), snapped
        to the nearest swara, and the cents-off-from-perfect drives the colour:
        green (±10¢) / teal (±20¢) / yellow (±35¢) / red (further off).
+       A vocal-range anchor (see detectAndPush) folds any reading that lands
+       outside the selected Range back into it by whole octaves, so a far-mic
+       octave slip renders as the same swara in the nearest saptak the range
+       spans instead of jumping octaves.
     5. The pitch is plotted as a scrolling coloured trail on a <canvas> grid
-       whose horizontal lines are the swaras.
+       whose horizontal lines are the swaras. The trail may spill a fraction of
+       a semitone past the top/bottom boundary swaras so a border note sung
+       slightly flat or sharp still reads as off-pitch rather than snapping onto
+       the edge line.
 
   Optional MIDI keyboard (footer "🎹 MIDI" button + ⚙ config): connect an
   external keyboard via the Web MIDI API to play a harmonium drone/reference
@@ -271,6 +278,7 @@
             <option value="madhya-sa">Madhya Sa → Sa</option>
             <option value="taar-sa">Taar Sa → Sa</option>
             <option value="mandraP-taarP" selected>Mandra Pa → Taar Pa</option>
+            <option value="mandraP-taarG">Mandra Pa → Taar Ga</option>
           </select>
         </div>
         <div class="midi-group">
@@ -473,6 +481,8 @@
         return { low: 0, high: 12 };
       case "taar-sa":         // Taar Sa (+12) up to Ati-taar Sa (+24)
         return { low: 12, high: 24 };
+      case "mandraP-taarG":   // Mandra Pa (-5) up to Taar Ga (+16)
+        return { low: -5, high: 16 };
       case "mandraP-taarP":   // Mandra Pa (-5) up to Taar Pa (+19)
       default:
         return { low: -5, high: 19 };
@@ -726,6 +736,19 @@
         while (rel - smoothRel > 10.5) rel -= 12;
         while (smoothRel - rel > 10.5) rel += 12;
       }
+      // Vocal-range anchor. Far mics weaken the fundamental, so the detector
+      // slips a whole octave (mandra/taar) — and at note onset there's no
+      // previous reading to correct against, so the wrong octave gets locked
+      // in. Since the singer has declared their saptak via the Range selector,
+      // fold any reading that lands OUTSIDE that window back in by octaves,
+      // but only when the fold actually lands it inside — so a genuinely
+      // in-range note (any saptak the range spans) is never disturbed. For a
+      // one-octave range this pins the note to the correct saptak; for a wider
+      // range it still snaps gross slips back in-band while the continuity
+      // guard above handles motion within the range.
+      const M = 0.5;   // small tolerance so notes right at the edge aren't nudged
+      while (rel > RANGE_HIGH + M && rel - 12 >= RANGE_LOW - M) rel -= 12;
+      while (rel < RANGE_LOW  - M && rel + 12 <= RANGE_HIGH + M) rel += 12;
       // Median filter over the last 3 raw readings: rejects one-off outlier
       // estimates (a single wild frame won't yank the line) without adding the
       // lag a longer window would.
@@ -751,8 +774,14 @@
       // swara reference line so the two lines overlap completely (no sliver).
       const drawnRel = tag === "green" ? off : rel;
       // Clamp to the visible range so the line stays on-graph even if the
-      // sung pitch is outside the current shruti/range window.
-      const clamped = Math.max(RANGE_LOW, Math.min(RANGE_HIGH, drawnRel));
+      // sung pitch is outside the current shruti/range window — but allow a
+      // small margin PAST the boundary swaras. Otherwise a border note (the
+      // lowest/highest swara of the range) sung slightly flat or sharp would be
+      // snapped exactly onto its line and read as "perfect", hiding the very
+      // deviation the trail is meant to show. The margin fits inside relToY's
+      // PAD_Y headroom, so the line stays on the canvas.
+      const DRAW_MARGIN = (PAD_Y - 6) / PX_PER_SEMITONE;   // ≈0.44 semitone of spill
+      const clamped = Math.max(RANGE_LOW - DRAW_MARGIN, Math.min(RANGE_HIGH + DRAW_MARGIN, drawnRel));
       history.push({ rel: clamped, color });
       noteName.textContent = label;
       noteName.style.color = color;

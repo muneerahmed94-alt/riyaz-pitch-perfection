@@ -18,6 +18,10 @@ There is no build step and there are no dependencies. The entire app is one
   - Madhya Sa → Sa
   - Taar Sa → Sa
   - Mandra Pa → Taar Pa (default, widest)
+  - Mandra Pa → Taar Ga
+  A note detected outside the selected range is folded by whole octaves to the
+  same swara in the nearest saptak the range spans (guards against far-mic
+  octave slips).
 - **Live pitch graph** — horizontal lines mark each swara
   (`S r R g G m M P d D n N`, with `.` for mandra and `'` for taar). Your sung
   pitch scrolls across as a coloured trail.
