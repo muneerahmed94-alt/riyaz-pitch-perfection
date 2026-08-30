@@ -39,6 +39,17 @@
   scheduled click track with adjustable BPM, beats-per-bar, and tap tempo
   (see the METRONOME section).
 
+  Auto pop-out graph: while practicing, switching to another tab automatically
+  floats the live graph in a small always-on-top Document Picture-in-Picture
+  window so you can keep watching your pitch; returning to the tab docks it
+  back. There is no button — it is driven by the media session
+  "enterpictureinpicture" action (registered because practice uses the mic), so
+  the browser re-triggers it on every tab switch (see registerAutoPip / openPip;
+  a plain visibilitychange open would only work once, until activation expires).
+  The detection/draw loop runs from whichever window is visible, since a
+  backgrounded tab's animation frames are paused. Chromium-only; no-ops
+  elsewhere.
+
   Everything lives in this one HTML file — no build step, no dependencies.
   Note: the pitch model uses 12-tone equal temperament, not just intonation.
 -->
@@ -275,10 +286,9 @@
           <label for="rangeSelect">Range</label>
           <select id="rangeSelect">
             <option value="mandra-sa">Mandra Sa → Sa</option>
-            <option value="madhya-sa">Madhya Sa → Sa</option>
+            <option value="madhya-sa" selected>Madhya Sa → Sa</option>
             <option value="taar-sa">Taar Sa → Sa</option>
-            <option value="mandraP-taarP" selected>Mandra Pa → Taar Pa</option>
-            <option value="mandraP-taarG">Mandra Pa → Taar Ga</option>
+            <option value="mandraP-taarP">Mandra Pa → Taar Pa</option>
           </select>
         </div>
         <div class="midi-group">
@@ -451,10 +461,20 @@
   let analyser = null;
   let sourceNode = null;
   let mediaStream = null;
-  let rafId = null;
+  let pipWindow = null;   // Document Picture-in-Picture window when the graph is popped out
   let running = false;
   let buf = null;
   let smoothRel = null;   // smoothed semitone position for steadier tracking
+  // Short-lived octave anchor. smoothRel resets to null the instant the signal
+  // drops out (a breath, a consonant, a soft attack), so the NEXT note's onset
+  // has nothing to fold octave slips against and whatever octave the detector
+  // guesses on that first noisy frame gets locked in — the usual cause of
+  // "madhya Sa suddenly shows as taar Sa". We keep the last voiced pitch for a
+  // brief grace window so a note resumed after a short gap stays in the octave
+  // you were just singing. The window is deliberately short: a deliberate
+  // octave leap (separated by a real pause) outlives it and is still accepted.
+  let octaveAnchor = null;   // last voiced smoothRel, retained across brief gaps
+  let anchorHold = 0;        // frames of grace remaining for octaveAnchor
   // Detection is throttled to a fixed rate (independent of the 60 Hz display
   // refresh) and passed through a small median filter, then an exponential
   // moving average. This matches standard pitch-tracker practice (~30 analyses
@@ -462,6 +482,7 @@
   // twitching on every sub-frame vocal wobble or stray estimate.
   const DETECT_HZ = 60;                       // pitch estimates per second
   const DETECT_INTERVAL = 1000 / DETECT_HZ;   // ms between estimates
+  const ANCHOR_GRACE_FRAMES = 24;             // ~0.4s: how long octaveAnchor survives silence
   let lastDetectAt = 0;                        // timestamp of last estimate
   const rawWindow = [];                        // recent raw rel values for median
 
@@ -477,19 +498,17 @@
     switch (rangeSelect.value) {
       case "mandra-sa":       // Mandra Sa (-12) up to Madhya Sa (0)
         return { low: -12, high: 0 };
-      case "madhya-sa":       // Madhya Sa (0) up to Taar Sa (+12)
-        return { low: 0, high: 12 };
       case "taar-sa":         // Taar Sa (+12) up to Ati-taar Sa (+24)
         return { low: 12, high: 24 };
-      case "mandraP-taarG":   // Mandra Pa (-5) up to Taar Ga (+16)
-        return { low: -5, high: 16 };
       case "mandraP-taarP":   // Mandra Pa (-5) up to Taar Pa (+19)
-      default:
         return { low: -5, high: 19 };
+      case "madhya-sa":       // Madhya Sa (0) up to Taar Sa (+12) — default
+      default:
+        return { low: 0, high: 12 };
     }
   }
-  let RANGE_LOW = -5;
-  let RANGE_HIGH = 19;
+  let RANGE_LOW = 0;
+  let RANGE_HIGH = 12;
   function refreshRange() {
     const b = rangeBounds();
     RANGE_LOW = b.low;
@@ -514,14 +533,21 @@
   const PX_PER_SEMITONE = 41;   // vertical gap between adjacent swara lines
   const PAD_Y = 24;
   function resizeCanvas() {
-    // Height scales with the range so line spacing stays generous.
-    // (The graph area scrolls; we auto-scroll to the bottom so the lowest
-    // swara — e.g. P. for Mandra Pa → Taar Pa — is visible at start.)
-    const span = RANGE_HIGH - RANGE_LOW;
-    const cssHeight = span * PX_PER_SEMITONE + PAD_Y * 2;
-    canvas.style.height = cssHeight + "px";
-    const scroller = canvas.parentElement;
-    scroller.scrollTop = scroller.scrollHeight;
+    if (pipWindow) {
+      // In the floating pop-out we fit the ENTIRE range into the small window
+      // (no scroll) so the whole saptak — and the moving trail — stays visible
+      // at a glance. relToY maps the range across whatever height we get.
+      canvas.style.height = "100%";
+    } else {
+      // Height scales with the range so line spacing stays generous.
+      // (The graph area scrolls; we auto-scroll to the bottom so the lowest
+      // swara — e.g. P. for Mandra Pa → Taar Pa — is visible at start.)
+      const span = RANGE_HIGH - RANGE_LOW;
+      const cssHeight = span * PX_PER_SEMITONE + PAD_Y * 2;
+      canvas.style.height = cssHeight + "px";
+      const scroller = canvas.parentElement;
+      scroller.scrollTop = scroller.scrollHeight;
+    }
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
     canvas.width = Math.round(rect.width * dpr);
@@ -731,10 +757,15 @@
       // Octave-error guard: only correct readings that land NEAR a full octave
       // (±1.5 semitones of 12) away from the current pitch — the signature of a
       // detector octave slip. A wider guard would wrongly fold genuine melodic
-      // leaps (e.g. S→P, a 7-semitone jump) back by an octave.
-      if (smoothRel != null) {
-        while (rel - smoothRel > 10.5) rel -= 12;
-        while (smoothRel - rel > 10.5) rel += 12;
+      // leaps (e.g. S→P, a 7-semitone jump) back by an octave. The anchor is
+      // the current smoothed pitch, or — at a fresh onset just after a brief
+      // gap — the retained octaveAnchor, so a note resumed after a breath keeps
+      // its octave instead of re-guessing it.
+      const anchor = smoothRel != null ? smoothRel
+                   : (anchorHold > 0 ? octaveAnchor : null);
+      if (anchor != null) {
+        while (rel - anchor > 10.5) rel -= 12;
+        while (anchor - rel > 10.5) rel += 12;
       }
       // Vocal-range anchor. Far mics weaken the fundamental, so the detector
       // slips a whole octave (mandra/taar) — and at note onset there's no
@@ -768,6 +799,9 @@
         smoothRel = smoothRel + (med - smoothRel) * alpha;
       }
       rel = smoothRel;
+      // Refresh the octave anchor from this voiced frame and recharge its grace.
+      octaveAnchor = smoothRel;
+      anchorHold = ANCHOR_GRACE_FRAMES;
       const { label, centsOff, off } = nearestSwara(rel);
       const { color, tag } = colorForCents(centsOff);
       // When the pitch is "perfect", snap the drawn position exactly onto the
@@ -792,6 +826,10 @@
     } else {
       smoothRel = null;
       rawWindow.length = 0;
+      // Let the octave anchor coast through a brief gap, then expire it so a
+      // real pause (before a deliberate octave leap) starts fresh.
+      if (anchorHold > 0) anchorHold--;
+      if (anchorHold === 0) octaveAnchor = null;
       history.push({ rel: null, color: "#888" });
       noteName.textContent = "—";
       noteName.style.color = "var(--muted)";
@@ -804,16 +842,28 @@
   }
 
   // Animation loop: drives detection at a fixed cadence (DETECT_HZ) while the
-  // canvas redraws each frame for smooth scrolling.
-  function frame(now) {
-    if (!running) return;
-    if (now - lastDetectAt >= DETECT_INTERVAL) {
-      lastDetectAt = now;
-      detectAndPush();
-      draw();
-    }
-    rafId = requestAnimationFrame(frame);
+  // canvas redraws each frame for smooth scrolling. requestAnimationFrame is
+  // paused by the browser while a tab is in the background, which would freeze
+  // both detection and drawing when you switch tabs — so we schedule the loop
+  // on whichever window is actually visible: the main window normally, or the
+  // Picture-in-Picture window while the graph is popped out. A generation
+  // counter lets us abandon the old (paused) loop cleanly when we switch hosts.
+  let loopGen = 0;
+  function loopHost() { return pipWindow || window; }
+  function runLoop() {
+    const gen = ++loopGen;
+    const tick = (now) => {
+      if (!running || gen !== loopGen) return;   // stopped or superseded by a newer loop
+      if (now - lastDetectAt >= DETECT_INTERVAL) {
+        lastDetectAt = now;
+        detectAndPush();
+        draw();
+      }
+      loopHost().requestAnimationFrame(tick);
+    };
+    loopHost().requestAnimationFrame(tick);
   }
+  function stopLoop() { loopGen++; }   // invalidate any in-flight tick
 
   // ---- Microphone + practice ----
   async function startPractice() {
@@ -844,12 +894,15 @@
       running = true;
       history.length = 0;
       smoothRel = null;
+      octaveAnchor = null;
+      anchorHold = 0;
       rawWindow.length = 0;
       lastDetectAt = 0;
       practiceBtn.textContent = "■ Stop";
       practiceBtn.classList.add("stop");
       statusText.textContent = "";
-      rafId = requestAnimationFrame(frame);
+      runLoop();
+      registerAutoPip();   // let the browser auto-float the graph on tab switch
     } catch (e) {
       statusText.textContent = "Could not start: " + e.message;
     }
@@ -857,7 +910,9 @@
 
   function stopPractice() {
     running = false;
-    if (rafId) cancelAnimationFrame(rafId);
+    stopLoop();
+    unregisterAutoPip();               // stop auto-floating once practice ends
+    if (pipWindow) restoreFromPip();   // dock the graph back so no stale window floats
     if (sourceNode) sourceNode.disconnect();
     if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
     if (audioCtx) audioCtx.close();
@@ -875,6 +930,87 @@
 
   practiceBtn.addEventListener("click", () => {
     if (running) stopPractice(); else startPractice();
+  });
+
+  // ---- Picture-in-Picture: auto-float the graph while you're on another tab ----
+  // Uses the Document Picture-in-Picture API (Chromium). We physically MOVE the
+  // graph container into the PiP window (its 2D context keeps rendering across
+  // the reparent) and draw it from that window's animation frame, so it keeps
+  // updating live while you're on another tab. On close/return we move it back.
+  //
+  // The trigger that fires on EVERY tab switch (not just once) is the media
+  // session "enterpictureinpicture" action. Opening a PiP window from a plain
+  // visibilitychange needs recent user activation, which expires ~5s after a
+  // click — so after the first switch it silently stops working. But a page
+  // using the microphone (which we are, during practice) can register the
+  // enterpictureinpicture action; the browser then treats us like a video call
+  // and calls that handler with activation each time the tab is hidden. That
+  // handler is our reliable, gesture-free auto-open. registerAutoPip() wires it
+  // up when practice starts (see startPractice); visibilitychange only handles
+  // docking the graph back when you return to the tab.
+  const graphScroll = canvas.parentElement;       // .graph-scroll — moved in/out of PiP
+  const graphHome = graphScroll.parentNode;        // .stage
+  const graphAnchor = graphScroll.nextSibling;     // reinsert before this (the footer)
+  const pipSupported = "documentPictureInPicture" in window;
+
+  async function openPip() {
+    if (!pipSupported || pipWindow) return;
+    let win;
+    try {
+      win = await documentPictureInPicture.requestWindow({ width: 360, height: 300 });
+    } catch (e) {
+      return;   // browser declined (no activation / unsupported) — stay docked
+    }
+    pipWindow = win;
+    // Carry the app's styles (incl. :root colour vars) into the blank PiP doc.
+    for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) {
+      win.document.head.appendChild(node.cloneNode(true));
+    }
+    win.document.documentElement.style.height = "100%";
+    win.document.body.style.cssText = "margin:0;padding:8px;height:100%;box-sizing:border-box;background:var(--bg);";
+    graphScroll.style.height = "100%";
+    win.document.body.appendChild(graphScroll);     // move the live graph in
+    resizeCanvas();
+    draw();
+    if (running) runLoop();                         // drive the loop from the visible PiP window
+    win.addEventListener("resize", () => { resizeCanvas(); draw(); });
+    win.addEventListener("pagehide", restoreFromPip);   // user closed the PiP window
+  }
+
+  function restoreFromPip() {
+    if (!pipWindow) return;
+    const win = pipWindow;
+    pipWindow = null;                               // clear first so resizeCanvas/pagehide see docked state
+    graphScroll.style.height = "";
+    graphHome.insertBefore(graphScroll, graphAnchor);
+    try { win.close(); } catch (e) {}
+    resizeCanvas();
+    draw();
+    if (running) runLoop();                         // resume on the main window
+  }
+
+  // Register the auto Picture-in-Picture handler once the mic is live. The
+  // browser fires it on each tab switch, giving us the activation to open PiP.
+  function registerAutoPip() {
+    if (!pipSupported || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.setActionHandler("enterpictureinpicture", () => openPip());
+    } catch (e) { /* action unsupported in this browser — visibilitychange still tries */ }
+  }
+  function unregisterAutoPip() {
+    if (!("mediaSession" in navigator)) return;
+    try { navigator.mediaSession.setActionHandler("enterpictureinpicture", null); } catch (e) {}
+  }
+
+  // Dock the graph back when you return to the tab. Also a best-effort open on
+  // hide, for browsers that allow it while activation is still fresh.
+  document.addEventListener("visibilitychange", () => {
+    if (!pipSupported) return;
+    if (document.hidden) {
+      if (running && !pipWindow) openPip();
+    } else if (pipWindow) {
+      restoreFromPip();
+    }
   });
 
   // Redraw grid when shruti/octave/range change

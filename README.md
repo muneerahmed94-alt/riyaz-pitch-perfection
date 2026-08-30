@@ -15,10 +15,9 @@ There is no build step and there are no dependencies. The entire app is one
   (A2 → A3). All swara positions are computed relative to this Sa.
 - **Range selector** — choose which saptaks (octaves) to display:
   - Mandra Sa → Sa
-  - Madhya Sa → Sa
+  - Madhya Sa → Sa (default)
   - Taar Sa → Sa
-  - Mandra Pa → Taar Pa (default, widest)
-  - Mandra Pa → Taar Ga
+  - Mandra Pa → Taar Pa (widest)
   A note detected outside the selected range is folded by whole octaves to the
   same swara in the nearest saptak the range spans (guards against far-mic
   octave slips).
@@ -32,6 +31,12 @@ There is no build step and there are no dependencies. The entire app is one
   - 🔴 **Red** — off pitch
 - **Note readout** — the current swara, cents deviation, and detected frequency
   (Hz). A blinking red dot indicates the mic is listening.
+- **Auto pop-out graph** — while practicing, switching to another tab
+  automatically floats the live graph in a small always-on-top window (Document
+  Picture-in-Picture) so you can keep watching your pitch; returning to the tab
+  docks it back. It re-triggers on every tab switch (via the media-session
+  Picture-in-Picture action, enabled because practice uses the mic). Chromium-only;
+  no-ops on browsers without the API.
 - **MIDI keyboard (optional)** — connect an external MIDI keyboard (Web MIDI
   API) via the footer **🎹 MIDI** button to play a harmonium reference along
   with your practice. The adjacent **⚙** opens a small config popover:
