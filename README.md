@@ -38,15 +38,6 @@ There is no build step and there are no dependencies. The entire app is one
     amplitude-normalized in the detector, so it changes the input level (helps a
     weak mic register) without shifting the detected pitch.
   - **Primary mic (voice)** — choose which input captures your singing.
-  - **Echo cancellation (harmonium)** — turns on the browser's built-in
-    acoustic echo cancellation for the voice mic. Because the app plays its own
-    MIDI harmonium, the browser holds that exact signal as the cancellation
-    reference and removes the harmonium bleed from the mic while keeping your
-    voice (which is uncorrelated with the reference, so it survives even on the
-    same swara). Off by default — the speech-tuned AEC can slightly colour
-    sustained tones, so toggle it to compare. Only useful when the harmonium
-    plays through speakers; with headphones the mic never hears it, so leave it
-    off.
   - **Noise handling** — how to deal with a tanpura/drone playing over speakers:
     - **Off** — single mic.
     - **Differential gate** *(recommended for a room drone)* — pick a second

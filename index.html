@@ -44,21 +44,8 @@
 
   Microphone popover (click the note pill): a small popover with a mic-gain
   slider (boost a far/quiet mic — gain is amplitude-normalized so it changes
-  level, not detected pitch), a Primary mic (voice) picker, an "Echo
-  cancellation (harmonium)" toggle, and a "Noise handling" dropdown with three
-  modes (see startPractice / detectAndPush).
-
-  Echo cancellation toggle: turns on the browser's built-in AEC
-  (echoCancellation getUserMedia constraint) for the voice mic. Because this
-  app renders its own MIDI harmonium, Chrome holds that exact signal as the AEC
-  reference and cancels the harmonium bleed out of the mic while leaving the
-  (uncorrelated) voice — even on the same swara. Off by default since WebRTC's
-  speech-tuned AEC can slightly colour sustained tones; it's a toggle so you can
-  A/B. Only meaningful when the harmonium plays through speakers (headphones
-  isolate the mic entirely, no AEC needed). Not applied to the reference mic,
-  which wants the raw drone for the gate.
-
-  Noise handling dropdown — three modes (see startPractice / detectAndPush):
+  level, not detected pitch), a Primary mic (voice) picker, and a "Noise
+  handling" dropdown with three modes (see startPractice / detectAndPush):
     • Off        — single mic, no reference.
     • Differential gate — open a second Reference mic placed near the speaker;
       each frame, if the reference (drone) is at least GATE_RATIO louder than
@@ -232,8 +219,6 @@
   .gain-popover select { width: 100%; min-width: 0; }
   .gain-row input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
   .gain-hint { font-size: 11px; color: var(--muted); }
-  .gain-popover .check-row { display: flex; flex-direction: row; align-items: center; gap: 8px; cursor: pointer; font-weight: 500; }
-  .gain-popover .check-row input { accent-color: var(--accent); cursor: pointer; margin: 0; }
   .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
   .dot.blinking { animation: blink 1s ease-in-out infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
@@ -471,9 +456,6 @@
               <label for="refMicSelect">Reference mic (noise)</label>
               <select id="refMicSelect"></select>
             </div>
-            <label class="check-row" for="echoCancelToggle" title="Cancel the app's own MIDI harmonium out of the mic. Best when it plays through speakers; skip it if you use headphones.">
-              <input type="checkbox" id="echoCancelToggle"> Echo cancellation (harmonium)
-            </label>
             <label for="micGainSlider">Mic gain <span id="micGainVal">1.0×</span></label>
             <div class="gain-row">
               <input type="range" id="micGainSlider" min="1" max="8" step="0.1" value="1">
@@ -1026,11 +1008,10 @@
       resizeCanvas();
       draw();
       const mode = ncModeSelect.value;   // "off" | "gate" | "subtract"
-      mediaStream = await navigator.mediaDevices.getUserMedia(micConstraints(primaryMicSelect.value, echoCancelToggle.checked));
+      mediaStream = await navigator.mediaDevices.getUserMedia(micConstraints(primaryMicSelect.value));
       if (mode !== "off") {
         try {
-          // Reference mic wants the raw drone (no AEC) so the gate can measure it.
-          refStream = await navigator.mediaDevices.getUserMedia(micConstraints(refMicSelect.value, false));
+          refStream = await navigator.mediaDevices.getUserMedia(micConstraints(refMicSelect.value));
         } catch (e) {
           refStream = null;   // reference unavailable — behave like single-mic
           statusText.textContent = "Reference mic unavailable — using primary only.";
@@ -1255,17 +1236,14 @@
   const refMicField = document.getElementById("refMicField");
   const ncModeSelect = document.getElementById("ncModeSelect");
   const gainHint = document.getElementById("gainHint");
-  const echoCancelToggle = document.getElementById("echoCancelToggle");
 
   // getUserMedia constraints for a given deviceId ("" = system default).
-  // We disable noise suppression / auto-gain so they don't fight our pitch
-  // engine. echoCancellation is opt-in (echo arg): when on, Chrome cancels the
-  // audio the browser itself renders — i.e. this app's MIDI harmonium — out of
-  // the mic, since it holds the exact render signal as the AEC reference. It's
-  // off by default because WebRTC's speech-tuned AEC can slightly colour
-  // sustained tones (so it stays a user toggle to A/B).
-  function micConstraints(deviceId, echo) {
-    const audio = { echoCancellation: !!echo, noiseSuppression: false, autoGainControl: false };
+  // Disable the browser's own processing so it doesn't fight our pitch engine.
+  // (echoCancellation in particular runs WebRTC's speech-tuned pipeline, which
+  // gates/distorts sustained singing and wrecks pitch detection — so it stays
+  // off; to keep the app's MIDI harmonium out of the mic, use headphones.)
+  function micConstraints(deviceId) {
+    const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     if (deviceId) audio.deviceId = { exact: deviceId };
     return { audio };
   }
@@ -1325,7 +1303,6 @@
   ncModeSelect.addEventListener("change", () => { applyNcMode(); restartIfRunning(); });
   primaryMicSelect.addEventListener("change", restartIfRunning);
   refMicSelect.addEventListener("change", restartIfRunning);
-  echoCancelToggle.addEventListener("change", restartIfRunning);   // AEC is a getUserMedia constraint, so re-open the stream
 
   // Changing a device or mode mid-session needs a fresh audio graph.
   function restartIfRunning() {
