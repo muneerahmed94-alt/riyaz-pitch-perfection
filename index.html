@@ -861,9 +861,11 @@
     const leftPad = 40, rightPad = 40;
 
     // Three swara lines: the sung note and its neighbours a semitone away.
+    // Always show all three (labelled by swara name, independent of the
+    // selected range) so there's never a missing line above/below at a range
+    // edge — e.g. singing the lower/upper Sa in Madhya Sa → Sa.
     for (let d = -1; d <= 1; d++) {
       const off = center + d;
-      if (off < Math.ceil(RANGE_LOW) || off > Math.floor(RANGE_HIGH)) continue;
       const y = yFor(off);
       const isSa = (((off % 12) + 12) % 12) === 0;
       const active = d === 0 && currentNoteOff != null;
