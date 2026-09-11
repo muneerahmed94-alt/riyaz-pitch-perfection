@@ -23,8 +23,11 @@
        octave slip renders as the same swara in the nearest saptak the range
        spans instead of jumping octaves.
     5. The pitch is plotted as a scrolling coloured trail on a <canvas> grid
-       whose horizontal lines are the swaras. The trail may spill a fraction of
-       a semitone past the top/bottom boundary swaras so a border note sung
+       whose horizontal lines are the swaras. Each swara is labelled on BOTH the
+       left and right edges, and the line the singer is currently on lights up
+       in its accuracy colour with its labels shown in a filled pill (see
+       drawLabelPill / currentNoteOff in draw). The trail may spill a fraction
+       of a semitone past the top/bottom boundary swaras so a border note sung
        slightly flat or sharp still reads as off-pitch rather than snapping onto
        the edge line.
 
@@ -38,6 +41,22 @@
   Optional metronome (footer "Metronome" button + ⚙ config): a look-ahead
   scheduled click track with adjustable BPM, beats-per-bar, and tap tempo
   (see the METRONOME section).
+
+  Microphone popover (click the note pill): a small popover with a mic-gain
+  slider (boost a far/quiet mic — gain is amplitude-normalized so it changes
+  level, not detected pitch), a Primary mic (voice) picker, and a "Noise
+  handling" dropdown with three modes (see startPractice / detectAndPush):
+    • Off        — single mic, no reference.
+    • Differential gate — open a second Reference mic placed near the speaker;
+      each frame, if the reference (drone) is at least GATE_RATIO louder than
+      the primary (voice), the frame is dropped as drone. Robust to the two
+      mics' independent clocks since it only compares per-frame levels. This is
+      the recommended way to sing over a tanpura with the speaker in the room.
+    • Subtraction (experimental) — the reference signal is inverted (gain −1)
+      and summed into the primary before detection. True cancellation is
+      unreliable in-browser (independent mic clocks, different leakage paths, no
+      adaptive filter), so it's offered but not recommended.
+  Changing the mic or mode mid-session rebuilds the audio graph.
 
   Auto pop-out graph: while practicing, switching to another tab automatically
   floats the live graph in a small always-on-top Document Picture-in-Picture
@@ -174,7 +193,32 @@
     padding: 8px 16px;
     font-size: 14px;
     height: 46px;
+    cursor: pointer;
+    transition: border-color 0.15s;
   }
+  .pill:hover, .pill:focus-visible { border-color: var(--accent); outline: none; }
+  .gain-popover {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    z-index: 20;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 220px;
+    padding: 14px;
+    background: var(--panel);
+    border: 1.5px solid var(--line-strong);
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(90,40,10,0.22);
+  }
+  .gain-popover.open { display: flex; }
+  .gain-popover { min-width: 240px; }
+  .gain-popover label { font-size: 13px; font-weight: 600; }
+  .gain-popover .field { display: flex; flex-direction: column; gap: 4px; }
+  .gain-popover select { width: 100%; min-width: 0; }
+  .gain-row input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+  .gain-hint { font-size: 11px; color: var(--muted); }
   .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
   .dot.blinking { animation: blink 1s ease-in-out infinite; }
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
@@ -390,10 +434,33 @@
       </div>
       <div class="footer-right">
         <div class="note-block">
-          <div class="pill"><span id="statusDot" class="dot"></span><span id="noteName" class="big">—</span></div>
+          <div class="pill" id="gainToggle" role="button" tabindex="0" aria-haspopup="true" aria-expanded="false" title="Microphone gain — boost if a far mic isn't registering"><span id="statusDot" class="dot"></span><span id="noteName" class="big">—</span></div>
           <div class="metrics">
             <span class="cents" id="centsText"></span>
             <span class="cents" id="freqText"></span>
+          </div>
+          <div class="gain-popover" id="gainPopover">
+            <div class="field">
+              <label for="primaryMicSelect">Primary mic (voice)</label>
+              <select id="primaryMicSelect"></select>
+            </div>
+            <div class="field">
+              <label for="ncModeSelect">Noise handling</label>
+              <select id="ncModeSelect">
+                <option value="off" selected>Off (single mic)</option>
+                <option value="gate">Differential gate</option>
+                <option value="subtract">Subtraction (experimental)</option>
+              </select>
+            </div>
+            <div class="field" id="refMicField" hidden>
+              <label for="refMicSelect">Reference mic (noise)</label>
+              <select id="refMicSelect"></select>
+            </div>
+            <label for="micGainSlider">Mic gain <span id="micGainVal">1.0×</span></label>
+            <div class="gain-row">
+              <input type="range" id="micGainSlider" min="1" max="8" step="0.1" value="1">
+            </div>
+            <div class="gain-hint" id="gainHint">Boost if a far mic isn't registering your voice.</div>
           </div>
         </div>
         <button id="practiceBtn" class="btn-primary">▶ Practice</button>
@@ -460,7 +527,14 @@
   let audioCtx = null;
   let analyser = null;
   let sourceNode = null;
+  let micGainNode = null;      // user-adjustable input gain (mic → gain → analyser)
+  let micGainValue = 1;        // remembered across start/stop sessions
   let mediaStream = null;
+  // Dual-mic (noise handling). A second "reference" mic kept near the speaker
+  // lets us tell your voice from the drone. ncMode: "off" | "gate" | "subtract".
+  let refStream = null, refSource = null, refInvertGain = null;
+  let refAnalyser = null, refBuf = null;        // reference level (gate mode)
+  let primaryLevelAnalyser = null, primaryLevelBuf = null;   // pre-gain primary level (gate mode)
   let pipWindow = null;   // Document Picture-in-Picture window when the graph is popped out
   let running = false;
   let buf = null;
@@ -528,6 +602,8 @@
   // ---- Scrolling pitch history ----
   const history = [];      // {rel: semitonesFromSa, color}
   const MAX_POINTS = 600;
+  let currentNoteOff = null;   // nearest-swara offset of the note being sung now, or null
+  let currentNoteColor = null; // its pitch-accuracy colour, for the highlighted label pill
 
   // ---- Resize canvas for crisp rendering ----
   const PX_PER_SEMITONE = 41;   // vertical gap between adjacent swara lines
@@ -563,37 +639,71 @@
     return PAD_Y + (1 - t) * h;
   }
 
+  // Draw a swara label inside a filled rounded "pill" (used for the note being
+  // sung, mirroring pitchreader's active-note highlight). anchorX is the outer
+  // edge: for "left" it's the pill's left edge, for "right" its right edge.
+  // Uses the ctx.font/textBaseline already set by the caller.
+  function drawLabelPill(text, anchorX, y, align, color) {
+    const padX = 7, padY = 5;
+    const w = ctx.measureText(text).width;
+    const fs = parseInt(ctx.font, 10) || 14;
+    const h = fs + padY * 2;
+    const pillX = align === "left" ? anchorX - padX : anchorX - w - padX;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(pillX, y - h / 2, w + padX * 2, h, h / 2);
+    else ctx.rect(pillX, y - h / 2, w + padX * 2, h);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "left";
+    ctx.fillText(text, pillX + padX, y);
+  }
+
   function draw() {
     const rect = canvas.getBoundingClientRect();
     const W = rect.width, H = rect.height;
     ctx.clearRect(0, 0, W, H);
 
     const leftPad = 44;
+    const rightPad = 44;   // mirror the left gutter so labels sit on both sides
 
     // Draw swara lines
     const lines = activeLines();
     // With a wide range, lines get dense — thin them and their labels a touch.
     const dense = lines.length > 20;
+    const fontSize = dense ? "12px" : "14px";
     for (const sw of lines) {
       const y = relToY(sw.off);
       const isSa = sw.isSa;
+      const active = currentNoteOff != null && sw.off === currentNoteOff;
       ctx.beginPath();
       ctx.moveTo(leftPad, y);
-      ctx.lineTo(W - 8, y);
-      ctx.lineWidth = isSa ? 5 : (dense ? 3 : 3.6);
-      ctx.strokeStyle = isSa ? "#d45a00" : "#c9b489";
+      ctx.lineTo(W - rightPad, y);
+      ctx.lineWidth = active ? 5 : (isSa ? 5 : (dense ? 3 : 3.6));
+      // The line the singer is currently on lights up in its accuracy colour.
+      ctx.strokeStyle = active ? (currentNoteColor || "#d45a00") : (isSa ? "#d45a00" : "#c9b489");
       ctx.stroke();
 
-      // label
-      ctx.fillStyle = isSa ? "#bf4020" : "#a1887f";
-      ctx.font = (isSa ? "bold " : "") + (dense ? "12px" : "14px") + " 'Lora', Georgia, serif";
+      // Labels on BOTH sides. The active swara's labels sit in a filled pill.
+      ctx.font = (isSa || active ? "bold " : "") + fontSize + " 'Lora', Georgia, serif";
       ctx.textBaseline = "middle";
-      ctx.fillText(sw.label, 14, y);
+      if (active) {
+        const pillColor = currentNoteColor || "#d45a00";
+        drawLabelPill(sw.label, 14, y, "left", pillColor);
+        drawLabelPill(sw.label, W - 14, y, "right", pillColor);
+      } else {
+        ctx.fillStyle = isSa ? "#bf4020" : "#a1887f";
+        ctx.textAlign = "left";
+        ctx.fillText(sw.label, 14, y);
+        ctx.textAlign = "right";
+        ctx.fillText(sw.label, W - 14, y);
+      }
     }
+    ctx.textAlign = "left";   // restore default for the trail/other drawing
 
     // Draw the sung pitch trail
     if (history.length > 1) {
-      const step = (W - leftPad - 8) / MAX_POINTS;
+      const step = (W - leftPad - rightPad) / MAX_POINTS;
       // draw as colored segments
       for (let i = 1; i < history.length; i++) {
         const p0 = history[i - 1], p1 = history[i];
@@ -748,9 +858,28 @@
 
   // Run one pitch estimate and append a point to the trail. Called at the
   // throttled DETECT_HZ rate, not on every animation frame.
+  const GATE_RATIO = 1.3;   // primary must be ≥30% louder than reference to count as voice
+  function rmsOf(analyserNode, b) {
+    analyserNode.getFloatTimeDomainData(b);
+    let s = 0;
+    for (let i = 0; i < b.length; i++) s += b[i] * b[i];
+    return Math.sqrt(s / b.length);
+  }
+
   function detectAndPush() {
     analyser.getFloatTimeDomainData(buf);
-    const freq = detectPitch(buf, audioCtx.sampleRate);
+    // Differential gate: with a reference mic near the speaker, drop frames
+    // where the drone (reference) is as loud as, or louder than, your voice
+    // (primary). Voice is close to the primary mic, so when you sing the
+    // primary clearly wins; during your pauses the drone dominates the ref mic.
+    let freq;
+    if (refAnalyser && primaryLevelAnalyser) {
+      const primaryRms = rmsOf(primaryLevelAnalyser, primaryLevelBuf);
+      const refRms = rmsOf(refAnalyser, refBuf);
+      freq = (primaryRms > refRms * GATE_RATIO) ? detectPitch(buf, audioCtx.sampleRate) : -1;
+    } else {
+      freq = detectPitch(buf, audioCtx.sampleRate);
+    }
 
     if (freq > 0) {
       let rel = freqToRel(freq);
@@ -817,6 +946,8 @@
       const DRAW_MARGIN = (PAD_Y - 6) / PX_PER_SEMITONE;   // ≈0.44 semitone of spill
       const clamped = Math.max(RANGE_LOW - DRAW_MARGIN, Math.min(RANGE_HIGH + DRAW_MARGIN, drawnRel));
       history.push({ rel: clamped, color });
+      currentNoteOff = off;
+      currentNoteColor = color;
       noteName.textContent = label;
       noteName.style.color = color;
       statusDot.style.background = color;
@@ -831,6 +962,8 @@
       if (anchorHold > 0) anchorHold--;
       if (anchorHold === 0) octaveAnchor = null;
       history.push({ rel: null, color: "#888" });
+      currentNoteOff = null;
+      currentNoteColor = null;
       noteName.textContent = "—";
       noteName.style.color = "var(--muted)";
       statusDot.style.background = "var(--red)";
@@ -874,14 +1007,17 @@
       // the mic-permission popup.
       resizeCanvas();
       draw();
-      const constraints = {
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      };
-      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const mode = ncModeSelect.value;   // "off" | "gate" | "subtract"
+      mediaStream = await navigator.mediaDevices.getUserMedia(micConstraints(primaryMicSelect.value));
+      if (mode !== "off") {
+        try {
+          refStream = await navigator.mediaDevices.getUserMedia(micConstraints(refMicSelect.value));
+        } catch (e) {
+          refStream = null;   // reference unavailable — behave like single-mic
+          statusText.textContent = "Reference mic unavailable — using primary only.";
+        }
+      }
+      refreshMicList();   // permission granted, so device labels are now populated
 
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === "suspended") await audioCtx.resume();
@@ -889,7 +1025,43 @@
       analyser.fftSize = 2048;
       buf = new Float32Array(analyser.fftSize);
       sourceNode = audioCtx.createMediaStreamSource(mediaStream);
-      sourceNode.connect(analyser);
+      // Input gain the user can raise for a far/quiet mic, so a soft signal
+      // clears the "too quiet" detection gate. (NSDF pitch detection is
+      // amplitude-normalized, so this mainly affects the level gate, not the
+      // detected pitch. It boosts everything, incl. background — it's about
+      // level, not noise reduction.)
+      micGainNode = audioCtx.createGain();
+      micGainNode.gain.value = micGainValue;
+      sourceNode.connect(micGainNode);
+      micGainNode.connect(analyser);
+
+      if (refStream) {
+        refSource = audioCtx.createMediaStreamSource(refStream);
+        if (mode === "gate") {
+          // Differential gate: compare the two mics' levels each frame (RMS,
+          // not sample subtraction — so independent mic clocks don't matter)
+          // and only detect when the primary (voice) mic clearly beats the
+          // reference (drone) mic. Measure the primary PRE-gain so the ratio
+          // reflects real acoustics, not the gain slider.
+          refAnalyser = audioCtx.createAnalyser();
+          refAnalyser.fftSize = 2048;
+          refBuf = new Float32Array(refAnalyser.fftSize);
+          refSource.connect(refAnalyser);
+          primaryLevelAnalyser = audioCtx.createAnalyser();
+          primaryLevelAnalyser.fftSize = 2048;
+          primaryLevelBuf = new Float32Array(primaryLevelAnalyser.fftSize);
+          sourceNode.connect(primaryLevelAnalyser);
+        } else if (mode === "subtract") {
+          // Experimental: sum primary + (−1 × reference) at the analyser so it
+          // sees primary − reference. Only partially cancels a room-speaker
+          // drone (two unsynced mics + different leakage paths), hence labeled
+          // experimental.
+          refInvertGain = audioCtx.createGain();
+          refInvertGain.gain.value = -1;
+          refSource.connect(refInvertGain);
+          refInvertGain.connect(analyser);
+        }
+      }
 
       running = true;
       history.length = 0;
@@ -914,9 +1086,17 @@
     unregisterAutoPip();               // stop auto-floating once practice ends
     if (pipWindow) restoreFromPip();   // dock the graph back so no stale window floats
     if (sourceNode) sourceNode.disconnect();
+    if (micGainNode) micGainNode.disconnect();
+    if (refSource) refSource.disconnect();
+    if (refInvertGain) refInvertGain.disconnect();
     if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+    if (refStream) refStream.getTracks().forEach(t => t.stop());
     if (audioCtx) audioCtx.close();
-    audioCtx = null; analyser = null; sourceNode = null; mediaStream = null;
+    audioCtx = null; analyser = null; sourceNode = null; micGainNode = null; mediaStream = null;
+    refStream = null; refSource = null; refInvertGain = null;
+    refAnalyser = null; refBuf = null; primaryLevelAnalyser = null; primaryLevelBuf = null;
+    currentNoteOff = null;
+    currentNoteColor = null;
     practiceBtn.textContent = "▶ Practice";
     practiceBtn.classList.remove("stop");
     statusText.textContent = "";
@@ -1012,6 +1192,125 @@
       restoreFromPip();
     }
   });
+
+  // ---- Microphone gain popover (click the note pill) ----
+  const gainToggle = document.getElementById("gainToggle");
+  const gainPopover = document.getElementById("gainPopover");
+  const micGainSlider = document.getElementById("micGainSlider");
+  const micGainVal = document.getElementById("micGainVal");
+
+  function setMicGain(v) {
+    micGainValue = v;
+    micGainVal.textContent = v.toFixed(1) + "×";
+    // Apply live if we're mid-session; otherwise it's used when practice starts.
+    if (micGainNode) micGainNode.gain.value = v;
+  }
+  micGainSlider.value = micGainValue;
+  setMicGain(micGainValue);
+  micGainSlider.addEventListener("input", () => setMicGain(parseFloat(micGainSlider.value)));
+
+  function toggleGainPopover() {
+    const open = gainPopover.classList.toggle("open");
+    gainToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) refreshMicList(true);   // re-enumerate (unlocking labels if needed) so real device names show
+  }
+  gainToggle.addEventListener("click", toggleGainPopover);
+  gainToggle.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGainPopover(); }
+  });
+  // Close when clicking outside the note pill / its popover.
+  document.addEventListener("click", (e) => {
+    if (!gainPopover.classList.contains("open")) return;
+    if (!e.target.closest(".note-block")) {
+      gainPopover.classList.remove("open");
+      gainToggle.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  // ---- Microphone device pickers + noise handling (inside the same popover) ----
+  //  Primary mic captures your voice. In "Differential gate" / "Subtraction"
+  //  modes a second reference mic (placed near the speaker) is opened too, and
+  //  used to suppress the tanpura/drone bleed. See startPractice/detectAndPush.
+  const primaryMicSelect = document.getElementById("primaryMicSelect");
+  const refMicSelect = document.getElementById("refMicSelect");
+  const refMicField = document.getElementById("refMicField");
+  const ncModeSelect = document.getElementById("ncModeSelect");
+  const gainHint = document.getElementById("gainHint");
+
+  // getUserMedia constraints for a given deviceId ("" = system default).
+  // Disable the browser's own processing so it doesn't fight our pitch engine.
+  function micConstraints(deviceId) {
+    const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    return { audio };
+  }
+
+  // Populate both device dropdowns from enumerateDevices, preserving any
+  // current selection. Device *labels* (real names like "MacBook Pro
+  // Microphone") are only exposed once mic permission has been granted — before
+  // that, enumerateDevices returns a single unlabelled input. So if we see no
+  // labels yet and no capture is running, grab a throwaway stream just long
+  // enough to unlock the labels, stop it immediately, then re-enumerate. When
+  // practice is already running the permission is live, so no unlock is needed.
+  let micLabelsUnlocked = false;
+  async function refreshMicList(allowUnlock) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    let devices;
+    try { devices = await navigator.mediaDevices.enumerateDevices(); }
+    catch (e) { return; }
+    let mics = devices.filter(d => d.kind === "audioinput");
+    const haveLabels = mics.some(d => d.label);
+    if (allowUnlock && !haveLabels && !micLabelsUnlocked && !running) {
+      micLabelsUnlocked = true;   // attempt the unlock at most once so we don't nag
+      try {
+        const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+        tmp.getTracks().forEach(t => t.stop());
+        devices = await navigator.mediaDevices.enumerateDevices();
+        mics = devices.filter(d => d.kind === "audioinput");
+      } catch (e) { /* permission denied — keep the generic fallback names */ }
+    }
+    for (const [sel, keep] of [[primaryMicSelect, primaryMicSelect.value], [refMicSelect, refMicSelect.value]]) {
+      sel.innerHTML = "";
+      const def = document.createElement("option");
+      def.value = ""; def.textContent = "Default microphone";
+      sel.appendChild(def);
+      mics.forEach((d, i) => {
+        const o = document.createElement("option");
+        o.value = d.deviceId;
+        o.textContent = d.label || ("Microphone " + (i + 1));
+        sel.appendChild(o);
+      });
+      // Restore prior selection if the device is still present.
+      if (keep && mics.some(d => d.deviceId === keep)) sel.value = keep;
+    }
+  }
+
+  // Show/hide the reference-mic picker and update the hint per mode.
+  function applyNcMode() {
+    const mode = ncModeSelect.value;
+    refMicField.hidden = (mode === "off");
+    if (mode === "gate") {
+      gainHint.textContent = "Reference mic sits near the speaker; when it's louder than your voice mic, that frame is treated as drone and dropped.";
+    } else if (mode === "subtract") {
+      gainHint.textContent = "Experimental: reference signal is inverted and summed into the primary. Cancellation is imperfect (independent mic clocks).";
+    } else {
+      gainHint.textContent = "Boost if a far mic isn't registering your voice.";
+    }
+  }
+  ncModeSelect.addEventListener("change", () => { applyNcMode(); restartIfRunning(); });
+  primaryMicSelect.addEventListener("change", restartIfRunning);
+  refMicSelect.addEventListener("change", restartIfRunning);
+
+  // Changing a device or mode mid-session needs a fresh audio graph.
+  function restartIfRunning() {
+    if (running) { stopPractice(); startPractice(); }
+  }
+
+  applyNcMode();
+  refreshMicList();
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener("devicechange", () => refreshMicList());
+  }
 
   // Redraw grid when shruti/octave/range change
   shrutiSelect.addEventListener("change", draw);

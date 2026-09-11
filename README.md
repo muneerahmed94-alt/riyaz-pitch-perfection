@@ -22,8 +22,10 @@ There is no build step and there are no dependencies. The entire app is one
   same swara in the nearest saptak the range spans (guards against far-mic
   octave slips).
 - **Live pitch graph** — horizontal lines mark each swara
-  (`S r R g G m M P d D n N`, with `.` for mandra and `'` for taar). Your sung
-  pitch scrolls across as a coloured trail.
+  (`S r R g G m M P d D n N`, with `.` for mandra and `'` for taar), labelled on
+  **both** the left and right edges. Your sung pitch scrolls across as a
+  coloured trail, and the swara you're currently on lights up in its accuracy
+  colour with its labels shown in a filled pill on each side.
 - **Colour feedback**
   - 🟢 **Green** — perfect (within ±10 cents)
   - 🩵 **Teal** — good (within ±20 cents)
@@ -31,6 +33,25 @@ There is no build step and there are no dependencies. The entire app is one
   - 🔴 **Red** — off pitch
 - **Note readout** — the current swara, cents deviation, and detected frequency
   (Hz). A blinking red dot indicates the mic is listening.
+- **Microphone settings** — click the note pill to open a small popover:
+  - **Mic gain** — a slider to boost a far or quiet microphone. Gain is
+    amplitude-normalized in the detector, so it changes the input level (helps a
+    weak mic register) without shifting the detected pitch.
+  - **Primary mic (voice)** — choose which input captures your singing.
+  - **Noise handling** — how to deal with a tanpura/drone playing over speakers:
+    - **Off** — single mic.
+    - **Differential gate** *(recommended for a room drone)* — pick a second
+      **Reference mic** and place it near the speaker; keep your voice near the
+      primary mic. Each frame where the reference (drone) is louder than the
+      primary (voice) is dropped, so the drone doesn't get scored as pitch. It
+      compares per-frame loudness only, so it's robust to the two mics running
+      on independent clocks.
+    - **Subtraction (experimental)** — inverts the reference and mixes it into
+      the primary before detection. True cancellation is unreliable in the
+      browser (independent mic clocks, differing leakage paths, no adaptive
+      filter), so it's offered but not recommended.
+
+  Changing the mic or mode while practicing rebuilds the audio graph on the fly.
 - **Auto pop-out graph** — while practicing, switching to another tab
   automatically floats the live graph in a small always-on-top window (Document
   Picture-in-Picture) so you can keep watching your pitch; returning to the tab
