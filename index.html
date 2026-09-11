@@ -881,14 +881,20 @@
     }
     ctx.textAlign = "left";
 
-    // The sung-pitch trail, mapped into the focused window.
+    // The sung-pitch trail. Anchor the newest sample at the right edge and lay
+    // out samples backwards at a fixed pixels-per-point rate (matching the
+    // full-tab scroll speed) so the pointer moves at a natural pace instead of
+    // creeping — older samples simply scroll off the left.
     if (history.length > 1) {
-      const step = (W - leftPad - rightPad) / MAX_POINTS;
-      for (let i = 1; i < history.length; i++) {
+      const step = 1.6;              // px per sample ≈ full-tab graph speed
+      const xRight = W - rightPad;   // newest sample pinned to the right edge
+      const newest = history.length - 1;
+      for (let i = newest; i >= 1; i--) {
+        const x1 = xRight - (newest - i) * step;
+        const x0 = x1 - step;
+        if (x1 < leftPad) break;     // beyond the left edge — stop scanning
         const p0 = history[i - 1], p1 = history[i];
         if (p0.rel == null || p1.rel == null) continue;
-        const x0 = leftPad + (i - 1) * step;
-        const x1 = leftPad + i * step;
         ctx.beginPath();
         ctx.moveTo(x0, yFor(p0.rel));
         ctx.lineTo(x1, yFor(p1.rel));
@@ -897,11 +903,10 @@
         ctx.strokeStyle = p1.color;
         ctx.stroke();
       }
-      const last = history[history.length - 1];
+      const last = history[newest];
       if (last.rel != null) {
-        const x = leftPad + (history.length - 1) * step;
         ctx.beginPath();
-        ctx.arc(x, yFor(last.rel), 6, 0, Math.PI * 2);
+        ctx.arc(xRight, yFor(last.rel), 6, 0, Math.PI * 2);
         ctx.fillStyle = last.color;
         ctx.fill();
       }
