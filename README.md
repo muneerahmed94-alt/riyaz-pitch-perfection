@@ -50,6 +50,11 @@ There is no build step and there are no dependencies. The entire app is one
       the primary before detection. True cancellation is unreliable in the
       browser (independent mic clocks, differing leakage paths, no adaptive
       filter), so it's offered but not recommended.
+  - **Pitch meter (centre gauge)** — off by default. When on, a large
+    translucent analog tuning gauge appears in the centre of the graph while you
+    sing: the needle points straight up at perfect pitch and swings left (flat)
+    or right (sharp) across ±50 cents, coloured by the same green/teal/yellow/red
+    accuracy tiers — a quick at-a-glance sense of how far off centre you are.
 
   Changing the mic or mode while practicing rebuilds the audio graph on the fly.
 - **Auto pop-out graph** — while practicing, switching to another tab
