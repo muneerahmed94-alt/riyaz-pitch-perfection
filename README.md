@@ -54,17 +54,22 @@ There is no build step and there are no dependencies. The entire app is one
     translucent analog tuning gauge appears in the centre of the graph while you
     sing: the needle points straight up at perfect pitch and swings left (flat)
     or right (sharp) across ±50 cents, coloured by the same green/teal/yellow/red
-    accuracy tiers — a quick at-a-glance sense of how far off centre you are.
+    accuracy tiers — a quick at-a-glance sense of how far off centre you are. It
+    stays centred on the visible portion of the graph even for a wide,
+    scrolling range.
 
   Changing the mic or mode while practicing rebuilds the audio graph on the fly.
 - **Auto pop-out graph** — while practicing, switching to another tab
   automatically floats a small always-on-top window (Document Picture-in-Picture)
   so you can keep watching your pitch; returning to the tab docks it back. The
   floating window shows a focused three-line graph (rather than the full
-  scrolling grid): the swara being sung on a centre line with its neighbours one
-  above and one below, note names on both edges, and the live trail zoomed into
-  that small window. The centre follows the sung note. It re-triggers on every
-  tab switch (via the media-session
+  scrolling grid): the swara being sung on a centre line with a neighbour one
+  semitone above and one below, note names on both edges, and the live trail
+  zoomed into that small window. All three lines are always drawn (labelled by
+  swara name regardless of the selected range, so none goes missing at a range
+  edge), and the trail scrolls at the same speed as the full-tab graph. The
+  centre follows the sung note, and it starts rendering immediately on switch.
+  It re-triggers on every tab switch (via the media-session
   Picture-in-Picture action, enabled because practice uses the mic). Chromium-only;
   no-ops on browsers without the API.
 - **MIDI keyboard (optional)** — connect an external MIDI keyboard (Web MIDI

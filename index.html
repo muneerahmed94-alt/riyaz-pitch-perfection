@@ -62,23 +62,30 @@
   translucent analog tuning gauge is drawn in the centre of the graph while a
   note sounds — the needle points straight up at perfect pitch and swings
   left/right over ±50 cents, coloured by the same accuracy tiers (see drawMeter
-  / showMeter). It's a pure draw option, so toggling it needs no stream restart.
+  / showMeter). It centres on the VISIBLE scroll viewport (not the whole tall
+  canvas), so a wide range doesn't park it off-screen. It's a pure draw option,
+  so toggling it needs no stream restart.
 
   Auto pop-out graph: while practicing, switching to another tab automatically
   floats a small always-on-top Document Picture-in-Picture window so you can
   keep watching your pitch; returning to the tab docks it back. The floating
   window shows a focused three-line graph (not the full scrolling grid): the
-  swara being sung on a centre line with its immediate neighbours one above and
-  one below, note names on both edges, and the live trail zoomed into that
-  small window. The centre follows the sung note and holds its last position
-  when nothing sounds (see draw()'s pipWindow branch → drawPipGraph). There is
-  no button — it is driven by the media session
+  swara being sung on a centre line with a neighbour one semitone above and one
+  below, note names on both edges, and the live trail zoomed into that small
+  window. All three lines are always drawn and labelled by swara name (via
+  labelForOffset, independent of the selected range) so no line goes missing at
+  a range edge. The trail is pinned newest-at-right and laid out at a fixed
+  px-per-sample rate, matching the full-tab scroll speed rather than cramming
+  the whole history in. The centre follows the sung note and holds its last
+  position when nothing sounds (see draw()'s pipWindow branch → drawPipGraph).
+  There is no button — it is driven by the media session
   "enterpictureinpicture" action (registered because practice uses the mic), so
   the browser re-triggers it on every tab switch (see registerAutoPip / openPip;
   a plain visibilitychange open would only work once, until activation expires).
   The detection/draw loop runs from whichever window is visible, since a
-  backgrounded tab's animation frames are paused. Chromium-only; no-ops
-  elsewhere.
+  backgrounded tab's animation frames are paused; each host has its own time
+  origin, so runLoop resets the detect-cadence gate to render immediately on
+  switch instead of stalling. Chromium-only; no-ops elsewhere.
 
   Everything lives in this one HTML file — no build step, no dependencies.
   Note: the pitch model uses 12-tone equal temperament, not just intonation.
