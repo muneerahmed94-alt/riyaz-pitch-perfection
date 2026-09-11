@@ -57,13 +57,14 @@ There is no build step and there are no dependencies. The entire app is one
     accuracy tiers — a quick at-a-glance sense of how far off centre you are.
 
   Changing the mic or mode while practicing rebuilds the audio graph on the fly.
-- **Auto pop-out meter** — while practicing, switching to another tab
+- **Auto pop-out graph** — while practicing, switching to another tab
   automatically floats a small always-on-top window (Document Picture-in-Picture)
   so you can keep watching your pitch; returning to the tab docks it back. The
-  floating window shows the large centre tuning meter (rather than the full
-  scrolling graph): the needle points up at perfect pitch and swings left (flat)
-  or right (sharp) across ±50 cents, resting on an idle dial when no note is
-  sounding. It re-triggers on every tab switch (via the media-session
+  floating window shows a focused three-line graph (rather than the full
+  scrolling grid): the swara being sung on a centre line with its neighbours one
+  above and one below, note names on both edges, and the live trail zoomed into
+  that small window. The centre follows the sung note. It re-triggers on every
+  tab switch (via the media-session
   Picture-in-Picture action, enabled because practice uses the mic). Chromium-only;
   no-ops on browsers without the API.
 - **MIDI keyboard (optional)** — connect an external MIDI keyboard (Web MIDI

@@ -67,10 +67,12 @@
   Auto pop-out graph: while practicing, switching to another tab automatically
   floats a small always-on-top Document Picture-in-Picture window so you can
   keep watching your pitch; returning to the tab docks it back. The floating
-  window shows the large centre tuning meter (not the full scrolling graph) —
-  the needle points up at perfect pitch and swings ±50¢, and rests on an idle
-  dial when no note is sounding (see draw()'s pipWindow branch → drawMeter with
-  { solo:true }). There is no button — it is driven by the media session
+  window shows a focused three-line graph (not the full scrolling grid): the
+  swara being sung on a centre line with its immediate neighbours one above and
+  one below, note names on both edges, and the live trail zoomed into that
+  small window. The centre follows the sung note and holds its last position
+  when nothing sounds (see draw()'s pipWindow branch → drawPipGraph). There is
+  no button — it is driven by the media session
   "enterpictureinpicture" action (registered because practice uses the mic), so
   the browser re-triggers it on every tab switch (see registerAutoPip / openPip;
   a plain visibilitychange open would only work once, until activation expires).
@@ -620,6 +622,7 @@
   let currentNoteColor = null; // its pitch-accuracy colour, for the highlighted label pill
   let currentCents = null;     // tuning error in cents of the note being sung now, or null
   let showMeter = false;       // draw the big centre tuning gauge while singing (mic-menu toggle)
+  let pipCenterOff = null;     // swara the pop-out graph is centred on (tracks the sung note)
 
   // ---- Resize canvas for crisp rendering ----
   const PX_PER_SEMITONE = 41;   // vertical gap between adjacent swara lines
@@ -755,13 +758,10 @@
     const W = rect.width, H = rect.height;
     ctx.clearRect(0, 0, W, H);
 
-    // Popped-out PiP window shows just the big tuning meter, not the full graph.
+    // Popped-out PiP window shows a focused three-line graph centred on the
+    // note being sung — not the whole scrolling grid.
     if (pipWindow) {
-      drawMeter(W, H,
-        currentCents != null ? currentCents : 0,
-        currentNoteOff != null ? labelForOffset(currentNoteOff) : "—",
-        currentNoteColor || "#a1887f",
-        { solo: true, voiced: currentNoteOff != null });
+      drawPipGraph(W, H);
       return;
     }
 
@@ -832,6 +832,79 @@
     // Optional centre tuning gauge — only while a note is actually sounding.
     if (showMeter && currentNoteOff != null && currentCents != null) {
       drawMeter(W, H, currentCents, labelForOffset(currentNoteOff), currentNoteColor || "#d45a00");
+    }
+  }
+
+  // Focused graph for the floating pop-out window: the swara being sung on a
+  // centre line, its immediate neighbours one above and one below, note names
+  // on both edges, and the live trail zoomed into that small window. The centre
+  // follows the sung note and holds its last position when nothing sounds.
+  function drawPipGraph(W, H) {
+    if (currentNoteOff != null) pipCenterOff = currentNoteOff;
+    const center = pipCenterOff != null
+      ? pipCenterOff
+      : Math.round((RANGE_LOW + RANGE_HIGH) / 2);
+    const spanHalf = 1.6;          // semitones visible above/below the centre
+    const pad = 26;                // keep the outer lines off the very edge
+    const cy = H / 2;
+    const yFor = (rel) => cy - (rel - center) / spanHalf * (H / 2 - pad);
+    const leftPad = 40, rightPad = 40;
+
+    // Three swara lines: the sung note and its neighbours a semitone away.
+    for (let d = -1; d <= 1; d++) {
+      const off = center + d;
+      if (off < Math.ceil(RANGE_LOW) || off > Math.floor(RANGE_HIGH)) continue;
+      const y = yFor(off);
+      const isSa = (((off % 12) + 12) % 12) === 0;
+      const active = d === 0 && currentNoteOff != null;
+      ctx.beginPath();
+      ctx.moveTo(leftPad, y);
+      ctx.lineTo(W - rightPad, y);
+      ctx.lineWidth = d === 0 ? 5 : 3;
+      ctx.strokeStyle = d === 0
+        ? (currentNoteColor || "#d45a00")
+        : (isSa ? "#d9a066" : "#d8c6a0");
+      ctx.stroke();
+
+      const label = labelForOffset(off);
+      ctx.font = (d === 0 ? "bold 16px" : "14px") + " 'Lora', Georgia, serif";
+      ctx.textBaseline = "middle";
+      if (active) {
+        const pillColor = currentNoteColor || "#d45a00";
+        drawLabelPill(label, 12, y, "left", pillColor);
+        drawLabelPill(label, W - 12, y, "right", pillColor);
+      } else {
+        ctx.fillStyle = isSa ? "#bf4020" : "#a1887f";
+        ctx.textAlign = "left";  ctx.fillText(label, 12, y);
+        ctx.textAlign = "right"; ctx.fillText(label, W - 12, y);
+      }
+    }
+    ctx.textAlign = "left";
+
+    // The sung-pitch trail, mapped into the focused window.
+    if (history.length > 1) {
+      const step = (W - leftPad - rightPad) / MAX_POINTS;
+      for (let i = 1; i < history.length; i++) {
+        const p0 = history[i - 1], p1 = history[i];
+        if (p0.rel == null || p1.rel == null) continue;
+        const x0 = leftPad + (i - 1) * step;
+        const x1 = leftPad + i * step;
+        ctx.beginPath();
+        ctx.moveTo(x0, yFor(p0.rel));
+        ctx.lineTo(x1, yFor(p1.rel));
+        ctx.lineWidth = 3.6;
+        ctx.lineCap = "round";
+        ctx.strokeStyle = p1.color;
+        ctx.stroke();
+      }
+      const last = history[history.length - 1];
+      if (last.rel != null) {
+        const x = leftPad + (history.length - 1) * step;
+        ctx.beginPath();
+        ctx.arc(x, yFor(last.rel), 6, 0, Math.PI * 2);
+        ctx.fillStyle = last.color;
+        ctx.fill();
+      }
     }
   }
 
