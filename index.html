@@ -688,10 +688,15 @@
     opts = opts || {};
     const voiced = opts.voiced !== false;
     const solo = !!opts.solo;
-    const R = solo ? Math.min(W * 0.42, H * 0.6) : Math.min(W * 0.2, H * 0.42);
+    // In the docked overlay, size/centre on the VISIBLE viewport (the graph
+    // scrolls, so H is the whole tall canvas) rather than the full canvas —
+    // otherwise a wide range parks the meter off-screen.
+    const availH = opts.availH != null ? opts.availH : H;
+    const midY = opts.centerY != null ? opts.centerY : H / 2;
+    const R = solo ? Math.min(W * 0.42, H * 0.6) : Math.min(W * 0.2, availH * 0.42);
     if (R < 40) return;   // too small to be legible
     const cx = W / 2;
-    const cy = solo ? H * 0.62 : H / 2 + R * 0.42;   // pivot below centre so the arc fills above it
+    const cy = solo ? H * 0.62 : midY + R * 0.42;   // pivot below centre so the arc fills above it
     const SPAN = 78 * Math.PI / 180;   // needle travel each side of vertical
     const up = -Math.PI / 2;
     const clamped = Math.max(-50, Math.min(50, cents));
@@ -830,8 +835,13 @@
     }
 
     // Optional centre tuning gauge — only while a note is actually sounding.
+    // Centre it on the visible scroll viewport, not the whole tall canvas.
     if (showMeter && currentNoteOff != null && currentCents != null) {
-      drawMeter(W, H, currentCents, labelForOffset(currentNoteOff), currentNoteColor || "#d45a00");
+      const scroller = canvas.parentElement;
+      const viewH = scroller.clientHeight;
+      const centerY = scroller.scrollTop + viewH / 2;
+      drawMeter(W, H, currentCents, labelForOffset(currentNoteOff), currentNoteColor || "#d45a00",
+        { centerY, availH: viewH });
     }
   }
 
