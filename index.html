@@ -1180,6 +1180,12 @@
   function loopHost() { return pipWindow || window; }
   function runLoop() {
     const gen = ++loopGen;
+    // Each window (main vs PiP) has its OWN time origin, so a fresh host's rAF
+    // timestamp starts near 0 while lastDetectAt still holds the previous
+    // window's (large) clock value — making `now - lastDetectAt` negative for
+    // seconds and stalling detection right after a tab switch. Reset the gate
+    // so the very first tick on the new host detects immediately.
+    lastDetectAt = 0;
     const tick = (now) => {
       if (!running || gen !== loopGen) return;   // stopped or superseded by a newer loop
       if (now - lastDetectAt >= DETECT_INTERVAL) {
