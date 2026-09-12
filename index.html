@@ -627,6 +627,11 @@
   // ---- Scrolling pitch history ----
   const history = [];      // {rel: semitonesFromSa, color}
   const MAX_POINTS = 600;
+  // Shared stroke width for the pitch trail AND the highlighted (sung) swara
+  // line, so the note you're on and the pen drawing your pitch read as the same
+  // weight. Used in both the docked graph and the pop-out. Inactive reference
+  // lines stay thinner.
+  const SUNG_LINE_WIDTH = 5;
   let currentNoteOff = null;   // nearest-swara offset of the note being sung now, or null
   let currentNoteColor = null; // its pitch-accuracy colour, for the highlighted label pill
   let currentCents = null;     // tuning error in cents of the note being sung now, or null
@@ -800,7 +805,7 @@
       // consistent bold style; inactive lines keep their normal look (Sa in
       // orange, others in the pale reference tone).
       if (active) {
-        ctx.lineWidth = 6;
+        ctx.lineWidth = SUNG_LINE_WIDTH;
         ctx.strokeStyle = "#8a7449";
       } else {
         ctx.lineWidth = isSa ? 5 : (dense ? 3 : 3.6);
@@ -837,7 +842,7 @@
         ctx.beginPath();
         ctx.moveTo(x0, relToY(p0.rel));
         ctx.lineTo(x1, relToY(p1.rel));
-        ctx.lineWidth = 3.6;   // match reference swara line thickness
+        ctx.lineWidth = SUNG_LINE_WIDTH;   // match the highlighted sung-swara line
         ctx.lineCap = "round";
         ctx.strokeStyle = p1.color;
         ctx.stroke();
@@ -895,7 +900,7 @@
       // graph — a steady darker tone, NOT the pitch-accuracy colour (that
       // flickers green/red as you waver and is distracting). Neighbours keep
       // their pale tones (Sa slightly warmer).
-      ctx.lineWidth = d === 0 ? 6 : 3;
+      ctx.lineWidth = d === 0 ? SUNG_LINE_WIDTH : 3;
       ctx.strokeStyle = d === 0
         ? "#8a7449"
         : (isSa ? "#d9a066" : "#d8c6a0");
@@ -933,7 +938,7 @@
         ctx.beginPath();
         ctx.moveTo(x0, yFor(p0.rel));
         ctx.lineTo(x1, yFor(p1.rel));
-        ctx.lineWidth = 3.6;
+        ctx.lineWidth = SUNG_LINE_WIDTH;   // match the highlighted sung-swara line
         ctx.lineCap = "round";
         ctx.strokeStyle = p1.color;
         ctx.stroke();
