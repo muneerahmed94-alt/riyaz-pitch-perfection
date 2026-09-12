@@ -891,9 +891,13 @@
       ctx.beginPath();
       ctx.moveTo(leftPad, y);
       ctx.lineTo(W - rightPad, y);
-      ctx.lineWidth = d === 0 ? 5 : 3;
+      // Centre (sung) line gets the same fixed bold highlight as the docked
+      // graph — a steady darker tone, NOT the pitch-accuracy colour (that
+      // flickers green/red as you waver and is distracting). Neighbours keep
+      // their pale tones (Sa slightly warmer).
+      ctx.lineWidth = d === 0 ? 6 : 3;
       ctx.strokeStyle = d === 0
-        ? (currentNoteColor || "#d45a00")
+        ? "#8a7449"
         : (isSa ? "#d9a066" : "#d8c6a0");
       ctx.stroke();
 
