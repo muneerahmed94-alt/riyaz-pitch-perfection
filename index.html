@@ -796,13 +796,16 @@
       ctx.lineTo(W - rightPad, y);
       // Highlight the line being sung by making it bolder — but with a FIXED
       // colour, not the pitch-accuracy colour (that flickers green/red as you
-      // waver and is distracting). Sa keeps its orange; other swaras darken
-      // from the pale reference tone so the active line reads clearly.
-      const baseWidth = isSa ? 5 : (dense ? 3 : 3.6);
-      ctx.lineWidth = active ? baseWidth + 2.4 : baseWidth;
-      ctx.strokeStyle = isSa
-        ? "#d45a00"
-        : (active ? "#8a7449" : "#c9b489");
+      // waver and is distracting). The active swara (Sa included) gets one
+      // consistent bold style; inactive lines keep their normal look (Sa in
+      // orange, others in the pale reference tone).
+      if (active) {
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = "#8a7449";
+      } else {
+        ctx.lineWidth = isSa ? 5 : (dense ? 3 : 3.6);
+        ctx.strokeStyle = isSa ? "#d45a00" : "#c9b489";
+      }
       ctx.stroke();
 
       // Labels on BOTH sides. The active swara's labels sit in a filled pill.
