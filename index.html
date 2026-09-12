@@ -25,9 +25,11 @@
     5. The pitch is plotted as a scrolling coloured trail on a <canvas> grid
        whose horizontal lines are the swaras. Each swara is labelled on BOTH the
        left and right edges, and the swara currently being sung has its labels
-       (both sides) shown in a filled accuracy-coloured pill — the grid lines
-       themselves are left unchanged (see drawLabelPill / currentNoteOff in
-       draw). The trail may spill a fraction
+       (both sides) shown in a filled accuracy-coloured pill. Its grid line is
+       also drawn bolder (thicker + a fixed darker tone) to highlight it — but
+       NOT in the pitch-accuracy colour, since that flickers green/red as you
+       waver and is distracting (see drawLabelPill / currentNoteOff in draw).
+       The trail may spill a fraction
        of a semitone past the top/bottom boundary swaras so a border note sung
        slightly flat or sharp still reads as off-pitch rather than snapping onto
        the edge line.
@@ -792,8 +794,15 @@
       ctx.beginPath();
       ctx.moveTo(leftPad, y);
       ctx.lineTo(W - rightPad, y);
-      ctx.lineWidth = isSa ? 5 : (dense ? 3 : 3.6);
-      ctx.strokeStyle = isSa ? "#d45a00" : "#c9b489";
+      // Highlight the line being sung by making it bolder — but with a FIXED
+      // colour, not the pitch-accuracy colour (that flickers green/red as you
+      // waver and is distracting). Sa keeps its orange; other swaras darken
+      // from the pale reference tone so the active line reads clearly.
+      const baseWidth = isSa ? 5 : (dense ? 3 : 3.6);
+      ctx.lineWidth = active ? baseWidth + 2.4 : baseWidth;
+      ctx.strokeStyle = isSa
+        ? "#d45a00"
+        : (active ? "#8a7449" : "#c9b489");
       ctx.stroke();
 
       // Labels on BOTH sides. The active swara's labels sit in a filled pill.

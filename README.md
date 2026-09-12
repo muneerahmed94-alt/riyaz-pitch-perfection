@@ -25,7 +25,9 @@ There is no build step and there are no dependencies. The entire app is one
   (`S r R g G m M P d D n N`, with `.` for mandra and `'` for taar), labelled on
   **both** the left and right edges. Your sung pitch scrolls across as a
   coloured trail, and the swara you're currently on has its labels shown in a
-  filled accuracy-coloured pill on each side.
+  filled accuracy-coloured pill on each side and its grid line drawn bolder to
+  highlight it (a fixed darker tone, not the pitch-accuracy colour, which would
+  flicker distractingly as you waver).
 - **Colour feedback**
   - 🟢 **Green** — perfect (within ±10 cents)
   - 🩵 **Teal** — good (within ±20 cents)
